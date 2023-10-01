@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo chown runner:docker /var/run/docker.sock
+        if: ${{ env.ACT }}
+
+      - uses: actions/checkout@v2
+
+      - name: Set Toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: install clippy
+        run: rustup component add clippy
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: clippy
+        run: cargo clippy --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
