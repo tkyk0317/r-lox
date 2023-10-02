@@ -4,9 +4,15 @@
 
 [インタプリタの作り方 －言語設計／開発の基本と2つの方式による実装－](https://www.amazon.co.jp/gp/product/4295017876/ref=ppx_yo_dt_b_asin_title_o01_s00?ie=UTF8&psc=1)
 
+## 開発環境
+
+* Mac Studio M2 Max/32GB
+* Rust 1.72
+* Docker 24.0.6
+
 ## コマンド
 
-* make buld
+* make build
   * ビルド実行
 * make test
   * 単体テスト実行

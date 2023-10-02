@@ -1,22 +1,60 @@
+.PHONY: docker-build
+docker-build:
+	@ docker build -t r-lox .
+
 .PHONY: build
-build:
-	cargo b
+build: docker-build
+	@ docker run \
+		--mount type=volume,src=r-lox,target=/app/target \
+		-t \
+		--rm \
+		r-lox \
+		cargo b
 
 .PHONY: test
-test:
-	cargo test
+test: docker-build
+	@ docker run \
+		--mount type=volume,src=r-lox,target=/app/target \
+		-t \
+		--rm \
+		r-lox \
+		cargo t
 
 .PHONY: repl
-repl:
-	cargo r
+repl: docker-build
+	@ docker run \
+		--mount type=volume,src=r-lox,target=/app/target \
+		-ti \
+		--rm \
+		r-lox \
+		cargo r
 
 .PHONY: run
-run:
-	cargo r -- ./sample/sample.lox
+run: docker-build
+	@ docker run \
+		--mount type=volume,src=r-lox,target=/app/target \
+		-t \
+		--rm \
+		r-lox \
+		cargo r -- ./sample/sample.lox
 
 .PHONY: watch
-watch:
-	cargo watch -x build
+watch: docker-build
+	@ docker run \
+		--mount type=volume,src=r-lox,target=/app/target \
+		-t \
+		--rm \
+		r-lox \
+		cargo watch -x build
+
+.PHONY: clippy
+clippy: docker-build
+	@ docker run \
+		--mount type=volume,src=r-lox,target=/app/target \
+		-t \
+		--rm \
+		r-lox \
+		cargo clippy
 
 .PHONY: act
 act:

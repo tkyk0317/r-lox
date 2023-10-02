@@ -15,20 +15,11 @@ jobs:
 
       - uses: actions/checkout@v2
 
-      - name: Set Toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          components: clippy
-
-      - name: install clippy
-        run: rustup component add clippy
+      - name: clippy
+        run: make clippy
 
       - name: Build
-        run: cargo build --verbose
-
-      - name: clippy
-        run: cargo clippy --verbose
+        run: make build
 
       - name: Run tests
-        run: cargo test --verbose
+        run: make test
