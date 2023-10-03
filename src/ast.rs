@@ -15,11 +15,29 @@ type ParseResult = Result<AstType, String>;
 
 #[derive(PartialEq, Debug)]
 pub enum AstType {
-    Equality(Box<AstType>, Operation, Box<AstType>),
-    Comparison(Box<AstType>, Operation, Box<AstType>),
-    Term(Box<AstType>, Operation, Box<AstType>),
-    Factor(Box<AstType>, Operation, Box<AstType>),
-    Unary(Operation, Box<AstType>),
+    Experssion,
+
+    // Equality
+    BangEqual(Box<AstType>, Box<AstType>),
+    EqualEqual(Box<AstType>, Box<AstType>),
+
+    // Comparison
+    Greater(Box<AstType>, Box<AstType>),
+    GreaterEqual(Box<AstType>, Box<AstType>),
+    Less(Box<AstType>, Box<AstType>),
+    LessEqual(Box<AstType>, Box<AstType>),
+
+    // Term
+    Minus(Box<AstType>, Box<AstType>),
+    Plus(Box<AstType>, Box<AstType>),
+
+    // Factor
+    Div(Box<AstType>, Box<AstType>),
+    Mul(Box<AstType>, Box<AstType>),
+
+    // Unary
+    Bang(Box<AstType>),
+    UnaryMinus(Box<AstType>),
 
     Grouping(Box<AstType>),
 
@@ -71,13 +89,11 @@ impl<'a> Parser<'a> {
                 match token.token_type() {
                     TokenType::BangEqual => {
                         let right = self.comparison()?;
-                        comp =
-                            AstType::Equality(Box::new(comp), String::from("!="), Box::new(right))
+                        comp = AstType::BangEqual(Box::new(comp), Box::new(right))
                     }
                     TokenType::EqualEqual => {
                         let right = self.comparison()?;
-                        comp =
-                            AstType::Equality(Box::new(comp), String::from("=="), Box::new(right))
+                        comp = AstType::EqualEqual(Box::new(comp), Box::new(right))
                     }
                     _ => {
                         self.back();
@@ -104,23 +120,19 @@ impl<'a> Parser<'a> {
                 match token.token_type() {
                     TokenType::Greater => {
                         let right = self.term()?;
-                        term =
-                            AstType::Comparison(Box::new(term), String::from(">"), Box::new(right))
+                        term = AstType::Greater(Box::new(term), Box::new(right))
                     }
                     TokenType::GreaterEqual => {
                         let right = self.term()?;
-                        term =
-                            AstType::Comparison(Box::new(term), String::from(">="), Box::new(right))
+                        term = AstType::GreaterEqual(Box::new(term), Box::new(right))
                     }
                     TokenType::Less => {
                         let right = self.term()?;
-                        term =
-                            AstType::Comparison(Box::new(term), String::from("<"), Box::new(right))
+                        term = AstType::Less(Box::new(term), Box::new(right))
                     }
                     TokenType::LessEqual => {
                         let right = self.term()?;
-                        term =
-                            AstType::Comparison(Box::new(term), String::from("<="), Box::new(right))
+                        term = AstType::LessEqual(Box::new(term), Box::new(right))
                     }
                     _ => {
                         self.back();
@@ -146,11 +158,11 @@ impl<'a> Parser<'a> {
                 match token.token_type() {
                     TokenType::Minus => {
                         let right = self.factor()?;
-                        factor = AstType::Term(Box::new(factor), String::from("-"), Box::new(right))
+                        factor = AstType::Minus(Box::new(factor), Box::new(right))
                     }
                     TokenType::Plus => {
                         let right = self.factor()?;
-                        factor = AstType::Term(Box::new(factor), String::from("+"), Box::new(right))
+                        factor = AstType::Plus(Box::new(factor), Box::new(right))
                     }
                     _ => {
                         self.back();
@@ -177,11 +189,11 @@ impl<'a> Parser<'a> {
                 match token.token_type() {
                     TokenType::Slash => {
                         let right = self.unary()?;
-                        unary = AstType::Factor(Box::new(unary), String::from("/"), Box::new(right))
+                        unary = AstType::Div(Box::new(unary), Box::new(right))
                     }
                     TokenType::Star => {
                         let right = self.unary()?;
-                        unary = AstType::Factor(Box::new(unary), String::from("*"), Box::new(right))
+                        unary = AstType::Mul(Box::new(unary), Box::new(right))
                     }
                     _ => {
                         self.back();
@@ -206,11 +218,11 @@ impl<'a> Parser<'a> {
             match token.token_type() {
                 TokenType::Bang => {
                     let unary = self.unary()?;
-                    Ok(AstType::Unary(String::from("!"), Box::new(unary)))
+                    Ok(AstType::Bang(Box::new(unary)))
                 }
                 TokenType::Minus => {
                     let unary = self.unary()?;
-                    Ok(AstType::Unary(String::from("-"), Box::new(unary)))
+                    Ok(AstType::UnaryMinus(Box::new(unary)))
                 }
                 _ => {
                     self.back();
@@ -373,7 +385,7 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Unary(String::from("!"), Box::new(AstType::Number(1.0))),
+            AstType::Bang(Box::new(AstType::Number(1.0))),
             parser.expression()
         );
         let tokens = vec![
@@ -382,7 +394,7 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Unary(String::from("-"), Box::new(AstType::Number(1.0))),
+            AstType::UnaryMinus(Box::new(AstType::Number(1.0))),
             parser.expression()
         );
     }
@@ -396,9 +408,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Factor(
+            AstType::Div(
                 Box::new(AstType::Number(2.0)),
-                String::from("/"),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -411,9 +422,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Factor(
+            AstType::Mul(
                 Box::new(AstType::Number(2.0)),
-                String::from("*"),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -428,13 +438,11 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Factor(
-                Box::new(AstType::Factor(
+            AstType::Div(
+                Box::new(AstType::Mul(
                     Box::new(AstType::Number(2.0)),
-                    String::from("*"),
                     Box::new(AstType::Number(3.0))
                 )),
-                String::from("/"),
                 Box::new(AstType::Number(1.0)),
             ),
             parser.expression()
@@ -450,9 +458,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Term(
+            AstType::Plus(
                 Box::new(AstType::Number(2.0)),
-                String::from("+"),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -465,9 +472,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Term(
+            AstType::Minus(
                 Box::new(AstType::Number(2.0)),
-                String::from("-"),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -482,13 +488,11 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Term(
-                Box::new(AstType::Term(
+            AstType::Minus(
+                Box::new(AstType::Plus(
                     Box::new(AstType::Number(2.0)),
-                    String::from("+"),
                     Box::new(AstType::Number(3.0))
                 )),
-                String::from("-"),
                 Box::new(AstType::Number(1.0)),
             ),
             parser.expression()
@@ -506,12 +510,10 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Term(
+            AstType::Plus(
                 Box::new(AstType::Number(2.0)),
-                String::from("+"),
-                Box::new(AstType::Factor(
+                Box::new(AstType::Mul(
                     Box::new(AstType::Number(3.0)),
-                    String::from("*"),
                     Box::new(AstType::Number(1.0)),
                 ))
             ),
@@ -527,13 +529,11 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Term(
-                Box::new(AstType::Factor(
+            AstType::Minus(
+                Box::new(AstType::Div(
                     Box::new(AstType::Number(2.0)),
-                    String::from("/"),
                     Box::new(AstType::Number(3.0)),
                 )),
-                String::from("-"),
                 Box::new(AstType::Number(1.0)),
             ),
             parser.expression()
@@ -549,9 +549,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Comparison(
+            AstType::Greater(
                 Box::new(AstType::Number(2.0)),
-                String::from(">"),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -564,9 +563,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Comparison(
+            AstType::GreaterEqual(
                 Box::new(AstType::Number(2.0)),
-                String::from(">="),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -579,9 +577,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Comparison(
+            AstType::Less(
                 Box::new(AstType::Number(2.0)),
-                String::from("<"),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -594,9 +591,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Comparison(
+            AstType::LessEqual(
                 Box::new(AstType::Number(2.0)),
-                String::from("<="),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -613,16 +609,13 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Comparison(
-                Box::new(AstType::Term(
+            AstType::Greater(
+                Box::new(AstType::Plus(
                     Box::new(AstType::Number(2.0)),
-                    String::from("+"),
                     Box::new(AstType::Number(1.0))
                 )),
-                String::from(">"),
-                Box::new(AstType::Factor(
+                Box::new(AstType::Mul(
                     Box::new(AstType::Number(3.0)),
-                    String::from("*"),
                     Box::new(AstType::Number(4.0))
                 )),
             ),
@@ -639,9 +632,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Equality(
+            AstType::EqualEqual(
                 Box::new(AstType::Number(2.0)),
-                String::from("=="),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -654,9 +646,8 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Equality(
+            AstType::BangEqual(
                 Box::new(AstType::Number(2.0)),
-                String::from("!="),
                 Box::new(AstType::Number(1.0))
             ),
             parser.expression()
@@ -673,16 +664,13 @@ mod test {
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
-            AstType::Equality(
-                Box::new(AstType::Term(
+            AstType::EqualEqual(
+                Box::new(AstType::Plus(
                     Box::new(AstType::Number(2.0)),
-                    String::from("+"),
                     Box::new(AstType::Number(1.0))
                 )),
-                String::from("=="),
-                Box::new(AstType::Factor(
+                Box::new(AstType::Mul(
                     Box::new(AstType::Number(3.0)),
-                    String::from("*"),
                     Box::new(AstType::Number(4.0))
                 )),
             ),
