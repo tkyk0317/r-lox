@@ -60,6 +60,10 @@ impl Token {
             line,
         }
     }
+
+    pub fn token_type(&self) -> &TokenType {
+        &self.token
+    }
 }
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> Result {
