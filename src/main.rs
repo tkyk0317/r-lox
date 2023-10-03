@@ -1,13 +1,13 @@
+mod ast;
 mod scanner;
 mod token;
 
+use crate::scanner::Scanner;
 use std::env;
 use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::vec::Vec;
-
-use crate::scanner::Scanner;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -44,5 +44,8 @@ fn repl() {
 fn run_script(scripts: &String) {
     let scanner = Scanner::new(scripts);
     let tokens = scanner.scan();
-    println!("run script: {:?}", tokens);
+    println!("tokens: {:?}", tokens);
+
+    let ast = ast::Parser::new(&tokens).expression();
+    println!("ast: {:?}", ast);
 }
