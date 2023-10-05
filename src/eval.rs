@@ -12,6 +12,16 @@ pub fn eval(ast: &AstType) -> Box<dyn Any> {
         AstType::Nil => Box::new(None::<()>),
         AstType::Number(n) => Box::new(*n),
         AstType::String(s) => Box::new(s.clone()),
+        AstType::Bang(o) => {
+            let o = eval(o);
+
+            eval_bang(o)
+        }
+        AstType::UnaryMinus(o) => {
+            let o = eval(o);
+
+            eval_unary_minus(o)
+        }
         AstType::Plus(l, r) => {
             let l = eval(l);
             let r = eval(r);
@@ -119,6 +129,37 @@ fn eval_div(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
     }
 }
 
+/// -演算子評価
+///
+/// # Arguments
+/// * `operand` - オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（f64）
+fn eval_unary_minus(operand: Box<dyn Any>) -> Box<dyn Any> {
+    if (*operand).type_id() == TypeId::of::<f64>() {
+        Box::new(-(*operand.downcast::<f64>().unwrap()))
+    } else {
+        panic!("AstType::UnaryMinus Support Only Number!")
+    }
+}
+
+/// !演算子評価
+///
+/// # Arguments
+/// * `operand` - オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（bool）
+fn eval_bang(operand: Box<dyn Any>) -> Box<dyn Any> {
+    if (*operand).type_id() == TypeId::of::<bool>() {
+        Box::new(!*operand.downcast::<bool>().unwrap())
+    } else if (*operand).type_id() == TypeId::of::<Option<()>>() {
+        Box::new(true)
+    } else {
+        Box::new(false)
+    }
+}
 #[cfg(test)]
 mod test {
     use super::*;
@@ -220,5 +261,35 @@ mod test {
             Box::new(AstType::Number(2.0)),
         );
         assert_eq!(5.0, *eval(&ast).downcast::<f64>().unwrap());
+    }
+
+    #[test]
+    fn unary_minus_eval() {
+        let ast = AstType::UnaryMinus(Box::new(AstType::Number(1.0)));
+        assert_eq!(-1.0, *eval(&ast).downcast::<f64>().unwrap());
+
+        let ast = AstType::UnaryMinus(Box::new(AstType::Plus(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(4.0)),
+        )));
+        assert_eq!(-5.0, *eval(&ast).downcast::<f64>().unwrap());
+    }
+
+    #[test]
+    fn unary_bang() {
+        let ast = AstType::Bang(Box::new(AstType::Number(1.0)));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Bang(Box::new(AstType::Nil));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Bang(Box::new(AstType::True));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Bang(Box::new(AstType::False));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Bang(Box::new(AstType::String(String::from("a"))));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
     }
 }
