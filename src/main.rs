@@ -1,4 +1,5 @@
 mod ast;
+mod eval;
 mod scanner;
 mod token;
 
@@ -48,4 +49,7 @@ fn run_script(scripts: &String) {
 
     let ast = ast::Parser::new(&tokens).expression();
     println!("ast: {:?}", ast);
+
+    let eval_ret = eval::eval(&ast);
+    eval::print(eval_ret);
 }
