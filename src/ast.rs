@@ -9,6 +9,7 @@
 //!            | primary ;
 //! primary    -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
 use crate::token::{Token, TokenType};
+use std::vec::Vec;
 
 type ParseResult = Result<AstType, String>;
 
@@ -63,17 +64,24 @@ impl<'a> Parser<'a> {
     /// expression parse
     ///
     /// # Returns
-    /// * AstType - パース結果
-    pub fn expression(&mut self) -> AstType {
-        let result = self.equality();
-        if let Ok(result) = result {
-            result
-        } else {
-            // 文の区切りまでSKIPし、再度パースを行う
-            self.back();
-            self.synchronize();
-            self.expression()
+    /// * Vec<AstType> - パース結果
+    pub fn expression(&mut self) -> Vec<AstType> {
+        let mut result = vec![];
+        loop {
+            if let Ok(parse_result) = self.equality() {
+                result.push(parse_result);
+            } else {
+                // 文の区切りまでSKIPし、再度パースを行う
+                self.back();
+                self.synchronize();
+            }
+
+            if self.end() {
+                break;
+            }
         }
+
+        result
     }
 
     /// equality parse
@@ -247,7 +255,7 @@ impl<'a> Parser<'a> {
                 TokenType::False => Ok(AstType::False),
                 TokenType::Nil => Ok(AstType::Nil),
                 TokenType::LeftParen => {
-                    let expr = self.expression();
+                    let expr = self.equality()?;
                     self.consume(Some(TokenType::RightParen))?;
                     Ok(AstType::Grouping(Box::new(expr)))
                 }
@@ -338,7 +346,7 @@ mod test {
     fn 終端記号_parse() {
         let tokens = vec![Token::new(TokenType::Number(1.0), None, 0, 0)];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::Number(1.0), parser.expression());
+        assert_eq!(AstType::Number(1.0), parser.expression()[0]);
 
         let tokens = vec![Token::new(
             TokenType::String(String::from("test")),
@@ -347,19 +355,22 @@ mod test {
             0,
         )];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::String(String::from("test")), parser.expression());
+        assert_eq!(
+            AstType::String(String::from("test")),
+            parser.expression()[0]
+        );
 
         let tokens = vec![Token::new(TokenType::True, None, 0, 0)];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::True, parser.expression());
+        assert_eq!(AstType::True, parser.expression()[0]);
 
         let tokens = vec![Token::new(TokenType::False, None, 0, 0)];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::False, parser.expression());
+        assert_eq!(AstType::False, parser.expression()[0]);
 
         let tokens = vec![Token::new(TokenType::Nil, None, 0, 0)];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::Nil, parser.expression());
+        assert_eq!(AstType::Nil, parser.expression()[0]);
     }
 
     #[test]
@@ -372,7 +383,7 @@ mod test {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             AstType::Grouping(Box::new(AstType::Number(1.0))),
-            parser.expression()
+            parser.expression()[0]
         );
     }
 
@@ -385,7 +396,7 @@ mod test {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             AstType::Bang(Box::new(AstType::Number(1.0))),
-            parser.expression()
+            parser.expression()[0]
         );
         let tokens = vec![
             Token::new(TokenType::Minus, None, 0, 0),
@@ -394,7 +405,7 @@ mod test {
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             AstType::UnaryMinus(Box::new(AstType::Number(1.0))),
-            parser.expression()
+            parser.expression()[0]
         );
     }
 
@@ -411,7 +422,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -425,7 +436,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -444,7 +455,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()
+            parser.expression()[0]
         );
     }
 
@@ -461,7 +472,7 @@ mod test {
                 Box::new(AstType::String(String::from("a"))),
                 Box::new(AstType::String(String::from("b")))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -475,7 +486,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -489,7 +500,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -508,7 +519,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -527,7 +538,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()
+            parser.expression()[0]
         );
     }
 
@@ -549,7 +560,7 @@ mod test {
                     Box::new(AstType::Number(1.0)),
                 ))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -568,7 +579,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()
+            parser.expression()[0]
         );
     }
 
@@ -585,7 +596,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -599,7 +610,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -613,7 +624,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -627,7 +638,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -651,7 +662,7 @@ mod test {
                     Box::new(AstType::Number(4.0))
                 )),
             ),
-            parser.expression()
+            parser.expression()[0]
         );
     }
 
@@ -668,7 +679,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -682,7 +693,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()
+            parser.expression()[0]
         );
 
         let tokens = vec![
@@ -706,7 +717,7 @@ mod test {
                     Box::new(AstType::Number(4.0))
                 )),
             ),
-            parser.expression()
+            parser.expression()[0]
         );
     }
 
@@ -721,6 +732,18 @@ mod test {
         let mut parser = Parser::new(&tokens);
 
         // 不完全な文法部分がSKIPされていること
-        assert_eq!(AstType::Number(8.0), parser.expression());
+        assert_eq!(AstType::Number(8.0), parser.expression()[0]);
+    }
+
+    #[test]
+    fn 複数行_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        let result = parser.expression();
+        assert_eq!(AstType::Number(1.0), result[0]);
+        assert_eq!(AstType::Number(2.0), result[1]);
     }
 }
