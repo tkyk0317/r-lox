@@ -12,40 +12,18 @@ pub fn eval(ast: &AstType) -> Box<dyn Any> {
         AstType::Nil => Box::new(None::<()>),
         AstType::Number(n) => Box::new(*n),
         AstType::String(s) => Box::new(s.clone()),
-        AstType::Bang(o) => {
-            let o = eval(o);
-
-            eval_bang(o)
-        }
-        AstType::UnaryMinus(o) => {
-            let o = eval(o);
-
-            eval_unary_minus(o)
-        }
-        AstType::Plus(l, r) => {
-            let l = eval(l);
-            let r = eval(r);
-
-            eval_plus(l, r)
-        }
-        AstType::Minus(l, r) => {
-            let l = eval(l);
-            let r = eval(r);
-
-            eval_minus(l, r)
-        }
-        AstType::Mul(l, r) => {
-            let l = eval(l);
-            let r = eval(r);
-
-            eval_mul(l, r)
-        }
-        AstType::Div(l, r) => {
-            let l = eval(l);
-            let r = eval(r);
-
-            eval_div(l, r)
-        }
+        AstType::Bang(o) => bang(eval(o)),
+        AstType::UnaryMinus(o) => unary_minus(eval(o)),
+        AstType::Plus(l, r) => plus(eval(l), eval(r)),
+        AstType::Minus(l, r) => minus(eval(l), eval(r)),
+        AstType::Mul(l, r) => mul(eval(l), eval(r)),
+        AstType::Div(l, r) => div(eval(l), eval(r)),
+        AstType::EqualEqual(l, r) => equal_equal(eval(l), eval(r)),
+        AstType::BangEqual(l, r) => bang_equal(eval(l), eval(r)),
+        AstType::Greater(l, r) => greater(eval(l), eval(r)),
+        AstType::Less(l, r) => less(eval(l), eval(r)),
+        AstType::GreaterEqual(l, r) => greater_equal(eval(l), eval(r)),
+        AstType::LessEqual(l, r) => less_equal(eval(l), eval(r)),
         _ => panic!(""),
     }
 }
@@ -67,7 +45,7 @@ pub fn print(result: Box<dyn Any>) {
 ///
 /// # Return
 /// * Box<dyn Any> - 評価後の値（f64 or String）
-fn eval_plus(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+fn plus(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
     if (*left).type_id() == TypeId::of::<f64>() {
         Box::new(*left.downcast::<f64>().unwrap() + *right.downcast::<f64>().unwrap())
     } else if (*left).type_id() == TypeId::of::<String>() {
@@ -89,7 +67,7 @@ fn eval_plus(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
 ///
 /// # Return
 /// * Box<dyn Any> - 評価後の値（f64）
-fn eval_minus(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+fn minus(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
     if (*left).type_id() == TypeId::of::<f64>() {
         Box::new(*left.downcast::<f64>().unwrap() - *right.downcast::<f64>().unwrap())
     } else {
@@ -105,7 +83,7 @@ fn eval_minus(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
 ///
 /// # Return
 /// * Box<dyn Any> - 評価後の値（f64）
-fn eval_mul(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+fn mul(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
     if (*left).type_id() == TypeId::of::<f64>() {
         Box::new(*left.downcast::<f64>().unwrap() * *right.downcast::<f64>().unwrap())
     } else {
@@ -121,7 +99,7 @@ fn eval_mul(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
 ///
 /// # Return
 /// * Box<dyn Any> - 評価後の値（f64）
-fn eval_div(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+fn div(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
     if (*left).type_id() == TypeId::of::<f64>() {
         Box::new(*left.downcast::<f64>().unwrap() / *right.downcast::<f64>().unwrap())
     } else {
@@ -136,7 +114,7 @@ fn eval_div(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
 ///
 /// # Return
 /// * Box<dyn Any> - 評価後の値（f64）
-fn eval_unary_minus(operand: Box<dyn Any>) -> Box<dyn Any> {
+fn unary_minus(operand: Box<dyn Any>) -> Box<dyn Any> {
     if (*operand).type_id() == TypeId::of::<f64>() {
         Box::new(-(*operand.downcast::<f64>().unwrap()))
     } else {
@@ -151,7 +129,7 @@ fn eval_unary_minus(operand: Box<dyn Any>) -> Box<dyn Any> {
 ///
 /// # Return
 /// * Box<dyn Any> - 評価後の値（bool）
-fn eval_bang(operand: Box<dyn Any>) -> Box<dyn Any> {
+fn bang(operand: Box<dyn Any>) -> Box<dyn Any> {
     if (*operand).type_id() == TypeId::of::<bool>() {
         Box::new(!*operand.downcast::<bool>().unwrap())
     } else if (*operand).type_id() == TypeId::of::<Option<()>>() {
@@ -160,6 +138,121 @@ fn eval_bang(operand: Box<dyn Any>) -> Box<dyn Any> {
         Box::new(false)
     }
 }
+
+/// ==演算子評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（bool）
+fn equal_equal(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+    if (*left).type_id() == TypeId::of::<f64>() {
+        Box::new(*left.downcast::<f64>().unwrap() == *right.downcast::<f64>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<String>() {
+        Box::new(*left.downcast::<String>().unwrap() == *right.downcast::<String>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<bool>() {
+        Box::new(*left.downcast::<bool>().unwrap() == *right.downcast::<bool>().unwrap())
+    } else {
+        panic!("AstType::EqualEqual Support Only Number!")
+    }
+}
+
+/// !=演算子評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（bool）
+fn bang_equal(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+    let ret = equal_equal(left, right);
+
+    Box::new(!*ret.downcast::<bool>().unwrap())
+}
+
+/// >演算子評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（bool）
+fn greater(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+    if (*left).type_id() == TypeId::of::<f64>() {
+        Box::new(*left.downcast::<f64>().unwrap() > *right.downcast::<f64>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<String>() {
+        Box::new(*left.downcast::<String>().unwrap() > *right.downcast::<String>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<bool>() {
+        Box::new(*left.downcast::<bool>().unwrap() & !(*right.downcast::<bool>().unwrap()))
+    } else {
+        panic!("AstType::Greater Support Only Number!")
+    }
+}
+
+/// >=演算子評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（bool）
+fn greater_equal(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+    if (*left).type_id() == TypeId::of::<f64>() {
+        Box::new(*left.downcast::<f64>().unwrap() >= *right.downcast::<f64>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<String>() {
+        Box::new(*left.downcast::<String>().unwrap() >= *right.downcast::<String>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<bool>() {
+        Box::new(*left.downcast::<bool>().unwrap() >= *right.downcast::<bool>().unwrap())
+    } else {
+        panic!("AstType::Greater Support Only Number!")
+    }
+}
+
+/// <演算子評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（bool）
+fn less(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+    if (*left).type_id() == TypeId::of::<f64>() {
+        Box::new(*left.downcast::<f64>().unwrap() < *right.downcast::<f64>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<String>() {
+        Box::new(*left.downcast::<String>().unwrap() < *right.downcast::<String>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<bool>() {
+        Box::new(!(*left.downcast::<bool>().unwrap()) & *right.downcast::<bool>().unwrap())
+    } else {
+        panic!("AstType::Less Support Only Number!")
+    }
+}
+
+/// <=演算子評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * Box<dyn Any> - 評価後の値（bool）
+fn less_equal(left: Box<dyn Any>, right: Box<dyn Any>) -> Box<dyn Any> {
+    if (*left).type_id() == TypeId::of::<f64>() {
+        Box::new(*left.downcast::<f64>().unwrap() <= *right.downcast::<f64>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<String>() {
+        Box::new(*left.downcast::<String>().unwrap() <= *right.downcast::<String>().unwrap())
+    } else if (*left).type_id() == TypeId::of::<bool>() {
+        Box::new(*left.downcast::<bool>().unwrap() <= *right.downcast::<bool>().unwrap())
+    } else {
+        panic!("AstType::Less Support Only Number!")
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -276,7 +369,7 @@ mod test {
     }
 
     #[test]
-    fn unary_bang() {
+    fn unary_bang_eval() {
         let ast = AstType::Bang(Box::new(AstType::Number(1.0)));
         assert!(!*eval(&ast).downcast::<bool>().unwrap());
 
@@ -290,6 +383,306 @@ mod test {
         assert!(*eval(&ast).downcast::<bool>().unwrap());
 
         let ast = AstType::Bang(Box::new(AstType::String(String::from("a"))));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn equal_equal_eval() {
+        let ast = AstType::EqualEqual(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(1.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::EqualEqual(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::EqualEqual(
+            Box::new(AstType::String(String::from("test"))),
+            Box::new(AstType::String(String::from("test"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::EqualEqual(
+            Box::new(AstType::String(String::from("test"))),
+            Box::new(AstType::String(String::from("test, test"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::EqualEqual(Box::new(AstType::True), Box::new(AstType::True));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::EqualEqual(Box::new(AstType::False), Box::new(AstType::False));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::EqualEqual(Box::new(AstType::False), Box::new(AstType::True));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn bang_equal_eval() {
+        let ast = AstType::BangEqual(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(1.0)),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::BangEqual(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::BangEqual(
+            Box::new(AstType::String(String::from("test"))),
+            Box::new(AstType::String(String::from("test"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::BangEqual(
+            Box::new(AstType::String(String::from("test"))),
+            Box::new(AstType::String(String::from("test, test"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::BangEqual(Box::new(AstType::True), Box::new(AstType::True));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::BangEqual(Box::new(AstType::False), Box::new(AstType::False));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::BangEqual(Box::new(AstType::False), Box::new(AstType::True));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn greater_eval() {
+        let ast = AstType::Greater(
+            Box::new(AstType::Number(2.0)),
+            Box::new(AstType::Number(1.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(
+            Box::new(AstType::String(String::from("b"))),
+            Box::new(AstType::String(String::from("a"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("b"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(
+            Box::new(AstType::String(String::from("bc"))),
+            Box::new(AstType::String(String::from("ab"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("ba"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(Box::new(AstType::True), Box::new(AstType::True));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(Box::new(AstType::False), Box::new(AstType::False));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(Box::new(AstType::False), Box::new(AstType::True));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Greater(Box::new(AstType::True), Box::new(AstType::False));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn less_eval() {
+        let ast = AstType::Less(
+            Box::new(AstType::Number(2.0)),
+            Box::new(AstType::Number(1.0)),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(
+            Box::new(AstType::String(String::from("b"))),
+            Box::new(AstType::String(String::from("a"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("b"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(
+            Box::new(AstType::String(String::from("bc"))),
+            Box::new(AstType::String(String::from("ab"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("ba"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(Box::new(AstType::True), Box::new(AstType::True));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(Box::new(AstType::False), Box::new(AstType::False));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(Box::new(AstType::False), Box::new(AstType::True));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::Less(Box::new(AstType::True), Box::new(AstType::False));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn greater_equal_eval() {
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::Number(2.0)),
+            Box::new(AstType::Number(1.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::Number(2.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::String(String::from("b"))),
+            Box::new(AstType::String(String::from("a"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("b"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::String(String::from("bc"))),
+            Box::new(AstType::String(String::from("ab"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("ba"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("a"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(Box::new(AstType::True), Box::new(AstType::True));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(Box::new(AstType::False), Box::new(AstType::False));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(Box::new(AstType::False), Box::new(AstType::True));
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::GreaterEqual(Box::new(AstType::True), Box::new(AstType::False));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn less_equal_eval() {
+        let ast = AstType::LessEqual(
+            Box::new(AstType::Number(2.0)),
+            Box::new(AstType::Number(1.0)),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(
+            Box::new(AstType::Number(1.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(
+            Box::new(AstType::Number(2.0)),
+            Box::new(AstType::Number(2.0)),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(
+            Box::new(AstType::String(String::from("b"))),
+            Box::new(AstType::String(String::from("a"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("b"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(
+            Box::new(AstType::String(String::from("bc"))),
+            Box::new(AstType::String(String::from("ab"))),
+        );
+        assert!(!*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("ba"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(
+            Box::new(AstType::String(String::from("a"))),
+            Box::new(AstType::String(String::from("a"))),
+        );
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(Box::new(AstType::True), Box::new(AstType::True));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(Box::new(AstType::False), Box::new(AstType::False));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(Box::new(AstType::False), Box::new(AstType::True));
+        assert!(*eval(&ast).downcast::<bool>().unwrap());
+
+        let ast = AstType::LessEqual(Box::new(AstType::True), Box::new(AstType::False));
         assert!(!*eval(&ast).downcast::<bool>().unwrap());
     }
 }
