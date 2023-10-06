@@ -10,7 +10,6 @@
 //! primary    -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
 use crate::token::{Token, TokenType};
 
-type Operation = String;
 type ParseResult = Result<AstType, String>;
 
 #[derive(PartialEq, Debug)]
@@ -452,6 +451,20 @@ mod test {
     #[test]
     fn term_parse() {
         let tokens = vec![
+            Token::new(TokenType::String(String::from("a")), None, 0, 0),
+            Token::new(TokenType::Plus, None, 0, 0),
+            Token::new(TokenType::String(String::from("b")), None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Plus(
+                Box::new(AstType::String(String::from("a"))),
+                Box::new(AstType::String(String::from("b")))
+            ),
+            parser.expression()
+        );
+
+        let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::Plus, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
@@ -491,6 +504,25 @@ mod test {
             AstType::Minus(
                 Box::new(AstType::Plus(
                     Box::new(AstType::Number(2.0)),
+                    Box::new(AstType::Number(3.0))
+                )),
+                Box::new(AstType::Number(1.0)),
+            ),
+            parser.expression()
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Number(10.0), None, 0, 0),
+            Token::new(TokenType::Minus, None, 0, 0),
+            Token::new(TokenType::Number(3.0), None, 0, 0),
+            Token::new(TokenType::Minus, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Minus(
+                Box::new(AstType::Minus(
+                    Box::new(AstType::Number(10.0)),
                     Box::new(AstType::Number(3.0))
                 )),
                 Box::new(AstType::Number(1.0)),
