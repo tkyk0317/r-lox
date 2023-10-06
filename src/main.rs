@@ -51,5 +51,8 @@ fn run_script(scripts: &String) {
     println!("ast: {:?}", ast);
 
     let eval_ret = eval::eval(&ast);
-    eval::print(eval_ret);
+    match eval_ret {
+        Ok(result) => eval::print(result),
+        Err(err) => println!("{:?}", err),
+    };
 }
