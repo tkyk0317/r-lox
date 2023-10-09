@@ -12,11 +12,11 @@ pub enum RuntimeError {
 }
 impl RuntimeError {
     fn operand_type(&self, operand: &Operand) -> Option<&str> {
-        if (**operand).type_id() == TypeId::of::<String>() {
+        if one_type_check::<String>(operand) {
             Some("String")
-        } else if (**operand).type_id() == TypeId::of::<f64>() {
+        } else if one_type_check::<f64>(operand) {
             Some("f64")
-        } else if (**operand).type_id() == TypeId::of::<bool>() {
+        } else if one_type_check::<bool>(operand) {
             Some("bool")
         } else {
             None
@@ -96,11 +96,11 @@ pub fn eval(ast: &AstType, env: &mut Environment) -> EvalResult {
 
 /// 評価結果出力
 pub fn print(result: Operand) {
-    if (*result).type_id() == TypeId::of::<f64>() {
+    if one_type_check::<f64>(&result) {
         println!("{}", downcast::<f64>(result))
-    } else if (*result).type_id() == TypeId::of::<String>() {
+    } else if one_type_check::<String>(&result) {
         println!("{}", downcast::<String>(result))
-    } else if (*result).type_id() == TypeId::of::<bool>() {
+    } else if one_type_check::<bool>(&result) {
         println!("{}", downcast::<bool>(result))
     }
 }
@@ -183,7 +183,7 @@ fn div(left: Operand, right: Operand) -> EvalResult {
 /// # Return
 /// * EvalResult - 評価後の値（f64）
 fn unary_minus(operand: Operand) -> EvalResult {
-    if (*operand).type_id() == TypeId::of::<f64>() {
+    if one_type_check::<f64>(&operand) {
         Ok(Box::new(-(downcast::<f64>(operand))))
     } else {
         Err(RuntimeError::OperandType(operand))
@@ -198,9 +198,9 @@ fn unary_minus(operand: Operand) -> EvalResult {
 /// # Return
 /// * EvalResult - 評価後の値（bool）
 fn bang(operand: Operand) -> EvalResult {
-    if (*operand).type_id() == TypeId::of::<bool>() {
+    if one_type_check::<bool>(&operand) {
         Ok(Box::new(!*operand.downcast::<bool>().unwrap()))
-    } else if (*operand).type_id() == TypeId::of::<Option<()>>() {
+    } else if one_type_check::<Option<()>>(&operand) {
         Ok(Box::new(true))
     } else {
         Ok(Box::new(false))
@@ -276,18 +276,14 @@ fn greater(left: Operand, right: Operand) -> EvalResult {
 /// # Return
 /// * EvalResult - 評価後の値（bool）
 fn greater_equal(left: Operand, right: Operand) -> EvalResult {
-    if (*left).type_id() == TypeId::of::<f64>() {
+    if type_check::<f64>(&left, &right) {
+        Ok(Box::new(downcast::<f64>(left) >= downcast::<f64>(right)))
+    } else if type_check::<String>(&left, &right) {
         Ok(Box::new(
-            *left.downcast::<f64>().unwrap() >= *right.downcast::<f64>().unwrap(),
+            downcast::<String>(left) >= downcast::<String>(right),
         ))
-    } else if (*left).type_id() == TypeId::of::<String>() {
-        Ok(Box::new(
-            *left.downcast::<String>().unwrap() >= *right.downcast::<String>().unwrap(),
-        ))
-    } else if (*left).type_id() == TypeId::of::<bool>() {
-        Ok(Box::new(
-            *left.downcast::<bool>().unwrap() >= *right.downcast::<bool>().unwrap(),
-        ))
+    } else if type_check::<bool>(&left, &right) {
+        Ok(Box::new(downcast::<bool>(left) >= downcast::<bool>(right)))
     } else {
         Err(RuntimeError::TwoOperandType(left, right))
     }
@@ -303,17 +299,13 @@ fn greater_equal(left: Operand, right: Operand) -> EvalResult {
 /// * EvalResult - 評価後の値（bool）
 fn less(left: Operand, right: Operand) -> EvalResult {
     if type_check::<f64>(&left, &right) {
-        Ok(Box::new(
-            *left.downcast::<f64>().unwrap() < *right.downcast::<f64>().unwrap(),
-        ))
+        Ok(Box::new(downcast::<f64>(left) < downcast::<f64>(right)))
     } else if type_check::<String>(&left, &right) {
         Ok(Box::new(
-            *left.downcast::<String>().unwrap() < *right.downcast::<String>().unwrap(),
+            downcast::<String>(left) < downcast::<String>(right),
         ))
     } else if type_check::<bool>(&left, &right) {
-        Ok(Box::new(
-            !(*left.downcast::<bool>().unwrap()) & *right.downcast::<bool>().unwrap(),
-        ))
+        Ok(Box::new(!downcast::<bool>(left) & downcast::<bool>(right)))
     } else {
         Err(RuntimeError::TwoOperandType(left, right))
     }
@@ -363,14 +355,7 @@ fn print_stmt(operand: Operand) -> EvalResult {
 /// # Return
 /// * EvalResult - 評価後の値
 fn var_decl(i: &String, right: Operand, env: &mut Environment) -> EvalResult {
-    let value = if (*right).type_id() == TypeId::of::<String>() {
-        Value::String(downcast::<String>(right))
-    } else if (*right).type_id() == TypeId::of::<f64>() {
-        Value::F64(downcast::<f64>(right))
-    } else {
-        Value::Bool(downcast::<bool>(right))
-    };
-
+    let value = to_env_value(right);
     env.push(i.to_string(), value);
 
     Ok(Box::new(None::<()>))
@@ -408,18 +393,28 @@ fn assign(i: &String, right: Operand, env: &mut Environment) -> EvalResult {
     let val = env.get(i);
     if val.is_some() {
         // 変数に対する値を更新
-        let value = if (*right).type_id() == TypeId::of::<String>() {
-            Value::String(downcast::<String>(right))
-        } else if (*right).type_id() == TypeId::of::<f64>() {
-            Value::F64(downcast::<f64>(right))
-        } else {
-            Value::Bool(downcast::<bool>(right))
-        };
+        let value = to_env_value(right);
         env.push(i.to_string(), value);
 
         Ok(Box::new(None::<()>))
     } else {
         Err(RuntimeError::NotFoundVar(i.to_string()))
+    }
+}
+
+/// 環境に格納する値を取得
+/// # Arguments
+/// * `operand` - オペランド
+///
+/// # Return
+/// * Value - 変換後のValue
+fn to_env_value(operand: Operand) -> Value {
+    if one_type_check::<String>(&operand) {
+        Value::String(downcast::<String>(operand))
+    } else if one_type_check::<f64>(&operand) {
+        Value::F64(downcast::<f64>(operand))
+    } else {
+        Value::Bool(downcast::<bool>(operand))
     }
 }
 
@@ -448,7 +443,18 @@ fn block(ast_arr: &Vec<AstType>, env: &mut Environment) -> EvalResult {
 /// # Return
 /// * bool
 fn type_check<T: 'static>(left: &Operand, right: &Operand) -> bool {
-    (**left).type_id() == TypeId::of::<T>() && (**right).type_id() == TypeId::of::<T>()
+    one_type_check::<T>(left) && one_type_check::<T>(right)
+}
+
+/// オペランド型チェック
+///
+/// # Arguments
+/// * `operand` - オペランド
+///
+/// # Return
+/// * bool
+fn one_type_check<T: 'static>(operand: &Operand) -> bool {
+    (**operand).type_id() == TypeId::of::<T>()
 }
 
 /// ダウンキャスト
