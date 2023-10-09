@@ -1,4 +1,5 @@
 use crate::ast::AstType;
+use crate::environment::{Environment, Value};
 use std::any::{Any, TypeId};
 use std::error;
 use std::fmt;
@@ -7,6 +8,7 @@ use std::fmt;
 pub enum RuntimeError {
     OperandType(Operand),
     TwoOperandType(Operand, Operand),
+    NotFoundVar(String),
 }
 impl RuntimeError {
     fn operand_type(&self, operand: &Operand) -> Option<&str> {
@@ -29,6 +31,7 @@ impl RuntimeError {
                 self.operand_type(l),
                 self.operand_type(r)
             ),
+            Self::NotFoundVar(v) => format!("Could not found variable: {:?}", v),
         }
     }
 }
@@ -51,32 +54,42 @@ impl error::Error for RuntimeError {
     }
 }
 
-type Operand = Box<dyn Any>;
+pub type Operand = Box<dyn Any>;
 type EvalResult = Result<Operand, RuntimeError>;
 
 /// AST評価
 ///
 /// # Arguments
 /// * `ast` - AST
-pub fn eval(ast: &AstType) -> EvalResult {
+pub fn eval(ast: &AstType, env: &mut Environment) -> EvalResult {
     match ast {
         AstType::True => Ok(Box::new(true)),
         AstType::False => Ok(Box::new(false)),
         AstType::Nil => Ok(Box::new(None::<()>)),
         AstType::Number(n) => Ok(Box::new(*n)),
         AstType::String(s) => Ok(Box::new(s.clone())),
-        AstType::Bang(o) => bang(eval(o)?),
-        AstType::UnaryMinus(o) => unary_minus(eval(o)?),
-        AstType::Plus(l, r) => plus(eval(l)?, eval(r)?),
-        AstType::Minus(l, r) => minus(eval(l)?, eval(r)?),
-        AstType::Mul(l, r) => mul(eval(l)?, eval(r)?),
-        AstType::Div(l, r) => div(eval(l)?, eval(r)?),
-        AstType::EqualEqual(l, r) => equal_equal(eval(l)?, eval(r)?),
-        AstType::BangEqual(l, r) => bang_equal(eval(l)?, eval(r)?),
-        AstType::Greater(l, r) => greater(eval(l)?, eval(r)?),
-        AstType::Less(l, r) => less(eval(l)?, eval(r)?),
-        AstType::GreaterEqual(l, r) => greater_equal(eval(l)?, eval(r)?),
-        AstType::LessEqual(l, r) => less_equal(eval(l)?, eval(r)?),
+        AstType::Bang(o) => bang(eval(o, env)?),
+        AstType::UnaryMinus(o) => unary_minus(eval(o, env)?),
+        AstType::Plus(l, r) => plus(eval(l, env)?, eval(r, env)?),
+        AstType::Minus(l, r) => minus(eval(l, env)?, eval(r, env)?),
+        AstType::Mul(l, r) => mul(eval(l, env)?, eval(r, env)?),
+        AstType::Div(l, r) => div(eval(l, env)?, eval(r, env)?),
+        AstType::EqualEqual(l, r) => equal_equal(eval(l, env)?, eval(r, env)?),
+        AstType::BangEqual(l, r) => bang_equal(eval(l, env)?, eval(r, env)?),
+        AstType::Greater(l, r) => greater(eval(l, env)?, eval(r, env)?),
+        AstType::Less(l, r) => less(eval(l, env)?, eval(r, env)?),
+        AstType::GreaterEqual(l, r) => greater_equal(eval(l, env)?, eval(r, env)?),
+        AstType::LessEqual(l, r) => less_equal(eval(l, env)?, eval(r, env)?),
+        AstType::Print(o) => print_stmt(eval(o, env)?),
+        AstType::Var(i, o) => var_decl(i, eval(o, env)?, env),
+        AstType::Identifier(i) => identifier(i, env),
+        AstType::Assign(i, o) => assign(i, eval(o, env)?, env),
+        AstType::Grouping(o) => eval(o, env),
+        AstType::Block(o) => {
+            // ブロック用の環境を作成
+            let mut block_env = Environment::with_enclosing(env.clone());
+            block(o, &mut block_env)
+        }
         _ => panic!(""),
     }
 }
@@ -85,8 +98,10 @@ pub fn eval(ast: &AstType) -> EvalResult {
 pub fn print(result: Operand) {
     if (*result).type_id() == TypeId::of::<f64>() {
         println!("{}", downcast::<f64>(result))
-    } else {
+    } else if (*result).type_id() == TypeId::of::<String>() {
         println!("{}", downcast::<String>(result))
+    } else if (*result).type_id() == TypeId::of::<bool>() {
+        println!("{}", downcast::<bool>(result))
     }
 }
 
@@ -326,6 +341,104 @@ fn less_equal(left: Operand, right: Operand) -> EvalResult {
     }
 }
 
+/// print文評価
+///
+/// # Arguments
+/// * `operand` - オペランド
+///
+/// # Return
+/// * EvalResult - 評価後の値（f64）
+fn print_stmt(operand: Operand) -> EvalResult {
+    print(operand);
+
+    Ok(Box::new(None::<()>))
+}
+
+/// 変数定義評価
+///
+/// # Arguments
+/// * `i` - 変数名
+/// * `right` - 初期化式
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn var_decl(i: &String, right: Operand, env: &mut Environment) -> EvalResult {
+    let value = if (*right).type_id() == TypeId::of::<String>() {
+        Value::String(downcast::<String>(right))
+    } else if (*right).type_id() == TypeId::of::<f64>() {
+        Value::F64(downcast::<f64>(right))
+    } else {
+        Value::Bool(downcast::<bool>(right))
+    };
+
+    env.push(i.to_string(), value);
+
+    Ok(Box::new(None::<()>))
+}
+
+/// 変数参照評価
+///
+/// # Arguments
+/// * `i` - 変数名
+///
+/// # Return
+/// * EvalResult - 評価後の値（bool/f64/String）
+fn identifier(i: &String, env: &mut Environment) -> EvalResult {
+    let val = env.get(i);
+    if let Some(val) = val {
+        match val {
+            Value::F64(f) => Ok(Box::new(*f)),
+            Value::String(s) => Ok(Box::new(s.to_string())),
+            Value::Bool(b) => Ok(Box::new(*b)),
+        }
+    } else {
+        Err(RuntimeError::NotFoundVar(i.to_string()))
+    }
+}
+
+/// 代入式評価
+///
+/// # Arguments
+/// * `i` - 変数名
+/// * `right` - 初期化式
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn assign(i: &String, right: Operand, env: &mut Environment) -> EvalResult {
+    let val = env.get(i);
+    if val.is_some() {
+        // 変数に対する値を更新
+        let value = if (*right).type_id() == TypeId::of::<String>() {
+            Value::String(downcast::<String>(right))
+        } else if (*right).type_id() == TypeId::of::<f64>() {
+            Value::F64(downcast::<f64>(right))
+        } else {
+            Value::Bool(downcast::<bool>(right))
+        };
+        env.push(i.to_string(), value);
+
+        Ok(Box::new(None::<()>))
+    } else {
+        Err(RuntimeError::NotFoundVar(i.to_string()))
+    }
+}
+
+/// Block評価
+///
+/// # Arguments
+/// * `o` - Ast配列
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn block(ast_arr: &Vec<AstType>, env: &mut Environment) -> EvalResult {
+    let mut ret: EvalResult = Ok(Box::new(None::<()>));
+    for ast in ast_arr {
+        ret = eval(ast, env);
+    }
+
+    ret
+}
+
 /// オペランド型チェック
 ///
 /// # Arguments
@@ -356,21 +469,35 @@ mod test {
     #[test]
     fn リテラル_eval() {
         let ast = AstType::Number(1.0);
-        assert_eq!(1.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            1.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
 
         let ast = AstType::String("test".to_string());
-        assert_eq!("test", *eval(&ast).unwrap().downcast::<String>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            "test",
+            *eval(&ast, &mut env).unwrap().downcast::<String>().unwrap()
+        );
 
         let ast = AstType::True;
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::False;
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Nil;
+        let mut env = Environment::new();
         assert_eq!(
             None,
-            *eval(&ast).unwrap().downcast::<Option::<()>>().unwrap()
+            *eval(&ast, &mut env)
+                .unwrap()
+                .downcast::<Option::<()>>()
+                .unwrap()
         );
     }
 
@@ -380,7 +507,11 @@ mod test {
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert_eq!(3.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            3.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
 
         let ast = AstType::Plus(
             Box::new(AstType::Number(1.0)),
@@ -389,7 +520,11 @@ mod test {
                 Box::new(AstType::Number(3.0)),
             )),
         );
-        assert_eq!(6.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            6.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
     }
 
     #[test]
@@ -398,7 +533,11 @@ mod test {
             Box::new(AstType::Number(3.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert_eq!(1.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            1.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
 
         let ast = AstType::Minus(
             Box::new(AstType::Minus(
@@ -407,7 +546,11 @@ mod test {
             )),
             Box::new(AstType::Number(1.0)),
         );
-        assert_eq!(6.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            6.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
     }
 
     #[test]
@@ -416,9 +559,10 @@ mod test {
             Box::new(AstType::String(String::from("test,"))),
             Box::new(AstType::String(String::from("hello"))),
         );
+        let mut env = Environment::new();
         assert_eq!(
             "test,hello",
-            *eval(&ast).unwrap().downcast::<String>().unwrap()
+            *eval(&ast, &mut env).unwrap().downcast::<String>().unwrap()
         );
     }
 
@@ -428,7 +572,11 @@ mod test {
             Box::new(AstType::Number(3.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert_eq!(6.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            6.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
 
         let ast = AstType::Mul(
             Box::new(AstType::Mul(
@@ -437,7 +585,11 @@ mod test {
             )),
             Box::new(AstType::Number(2.0)),
         );
-        assert_eq!(60.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            60.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
     }
 
     #[test]
@@ -446,7 +598,11 @@ mod test {
             Box::new(AstType::Number(6.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert_eq!(3.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            3.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
 
         let ast = AstType::Div(
             Box::new(AstType::Div(
@@ -455,37 +611,53 @@ mod test {
             )),
             Box::new(AstType::Number(2.0)),
         );
-        assert_eq!(5.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            5.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
     }
 
     #[test]
     fn unary_minus_eval() {
         let ast = AstType::UnaryMinus(Box::new(AstType::Number(1.0)));
-        assert_eq!(-1.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            -1.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
 
         let ast = AstType::UnaryMinus(Box::new(AstType::Plus(
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(4.0)),
         )));
-        assert_eq!(-5.0, *eval(&ast).unwrap().downcast::<f64>().unwrap());
+        let mut env = Environment::new();
+        assert_eq!(
+            -5.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
     }
 
     #[test]
     fn unary_bang_eval() {
         let ast = AstType::Bang(Box::new(AstType::Number(1.0)));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Bang(Box::new(AstType::Nil));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Bang(Box::new(AstType::True));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Bang(Box::new(AstType::False));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Bang(Box::new(AstType::String(String::from("a"))));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
 
     #[test]
@@ -494,34 +666,41 @@ mod test {
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(1.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::EqualEqual(
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::EqualEqual(
             Box::new(AstType::String(String::from("test"))),
             Box::new(AstType::String(String::from("test"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::EqualEqual(
             Box::new(AstType::String(String::from("test"))),
             Box::new(AstType::String(String::from("test, test"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::EqualEqual(Box::new(AstType::True), Box::new(AstType::True));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::EqualEqual(Box::new(AstType::False), Box::new(AstType::False));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::EqualEqual(Box::new(AstType::False), Box::new(AstType::True));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
 
     #[test]
@@ -530,34 +709,41 @@ mod test {
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(1.0)),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::BangEqual(
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::BangEqual(
             Box::new(AstType::String(String::from("test"))),
             Box::new(AstType::String(String::from("test"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::BangEqual(
             Box::new(AstType::String(String::from("test"))),
             Box::new(AstType::String(String::from("test, test"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::BangEqual(Box::new(AstType::True), Box::new(AstType::True));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::BangEqual(Box::new(AstType::False), Box::new(AstType::False));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::BangEqual(Box::new(AstType::False), Box::new(AstType::True));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
 
     #[test]
@@ -566,49 +752,59 @@ mod test {
             Box::new(AstType::Number(2.0)),
             Box::new(AstType::Number(1.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(
             Box::new(AstType::String(String::from("b"))),
             Box::new(AstType::String(String::from("a"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("b"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(
             Box::new(AstType::String(String::from("bc"))),
             Box::new(AstType::String(String::from("ab"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("ba"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(Box::new(AstType::True), Box::new(AstType::True));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(Box::new(AstType::False), Box::new(AstType::False));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(Box::new(AstType::False), Box::new(AstType::True));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Greater(Box::new(AstType::True), Box::new(AstType::False));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
 
     #[test]
@@ -617,49 +813,59 @@ mod test {
             Box::new(AstType::Number(2.0)),
             Box::new(AstType::Number(1.0)),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(
             Box::new(AstType::String(String::from("b"))),
             Box::new(AstType::String(String::from("a"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("b"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(
             Box::new(AstType::String(String::from("bc"))),
             Box::new(AstType::String(String::from("ab"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("ba"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(Box::new(AstType::True), Box::new(AstType::True));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(Box::new(AstType::False), Box::new(AstType::False));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(Box::new(AstType::False), Box::new(AstType::True));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::Less(Box::new(AstType::True), Box::new(AstType::False));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
 
     #[test]
@@ -668,61 +874,73 @@ mod test {
             Box::new(AstType::Number(2.0)),
             Box::new(AstType::Number(1.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(
             Box::new(AstType::Number(2.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(
             Box::new(AstType::String(String::from("b"))),
             Box::new(AstType::String(String::from("a"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("b"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(
             Box::new(AstType::String(String::from("bc"))),
             Box::new(AstType::String(String::from("ab"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("ba"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("a"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(Box::new(AstType::True), Box::new(AstType::True));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(Box::new(AstType::False), Box::new(AstType::False));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(Box::new(AstType::False), Box::new(AstType::True));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::GreaterEqual(Box::new(AstType::True), Box::new(AstType::False));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
 
     #[test]
@@ -731,60 +949,72 @@ mod test {
             Box::new(AstType::Number(2.0)),
             Box::new(AstType::Number(1.0)),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(
             Box::new(AstType::Number(1.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(
             Box::new(AstType::Number(2.0)),
             Box::new(AstType::Number(2.0)),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(
             Box::new(AstType::String(String::from("b"))),
             Box::new(AstType::String(String::from("a"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("b"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(
             Box::new(AstType::String(String::from("bc"))),
             Box::new(AstType::String(String::from("ab"))),
         );
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("ba"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(
             Box::new(AstType::String(String::from("a"))),
             Box::new(AstType::String(String::from("a"))),
         );
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(Box::new(AstType::True), Box::new(AstType::True));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(Box::new(AstType::False), Box::new(AstType::False));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(Box::new(AstType::False), Box::new(AstType::True));
-        assert!(*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(Box::new(AstType::True), Box::new(AstType::False));
-        assert!(!*eval(&ast).unwrap().downcast::<bool>().unwrap());
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
 }
