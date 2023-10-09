@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     F64(f64),
     String(String),
@@ -30,11 +30,6 @@ impl Environment {
 
     pub fn push(&mut self, key: String, value: Value) -> Option<Value> {
         self.variables.insert(key, value)
-        //if self.enclosing.is_some() {
-        //    self.enclosing.as_mut().unwrap().push(key, value)
-        //} else {
-        //    self.variables.insert(key, value)
-        //}
     }
 
     pub fn get(&self, key: &String) -> Option<&Value> {
@@ -58,5 +53,10 @@ mod test {
         env.push("a".to_string(), Value::F64(1.0));
         let val = env.get(&"a".to_string());
         assert!(val.is_some());
+        assert_eq!(&Value::F64(1.0), val.unwrap());
+
+        let mut block_env = Environment::with_enclosing(env.clone());
+        block_env.push("a".to_string(), Value::F64(10.0));
+        assert_eq!(&Value::F64(10.0), block_env.get(&"a".to_string()).unwrap());
     }
 }
