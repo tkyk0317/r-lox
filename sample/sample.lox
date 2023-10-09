@@ -1,4 +1,29 @@
-"a" + "b"
-110 - 2
-2 * 10
-10 / 5
+(1 + 2) * 4;
+1 >= 2;
+"a" + "b";
+110 - 2;
+2 * 10;
+10 / 5;
+print "print文からの出力です";
+print 110 + 90;
+print true;
+print nil;
+var a = 1100000;
+print a;
+a - 10000;
+var b = "test";
+print b;
+var c = false;
+print c;
+c = "update string";
+print c;
+{
+    var a = 99;
+    print a;
+    {
+        var a = 9;
+        print a;
+    }
+    print a;
+}
+print a;
