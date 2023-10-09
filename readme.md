@@ -17,9 +17,9 @@
 * make test
   * 単体テスト実行
 * make run
-  * sample/sample.loxを読み取り、token/ast/eval resultを表示
+  * sample/sample.loxを読み取り、評価結果を表示
 * make repl
-  * REPL実行。入力した文字列をスキャンし、token/ast/eval resultを表示
+  * REPL実行。入力した文字列をスキャンし、評価結果を表示
 * make act
   * github workflowsのシュミレート(actインストール必要)
 

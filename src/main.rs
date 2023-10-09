@@ -1,8 +1,10 @@
 mod ast;
+mod environment;
 mod eval;
 mod scanner;
 mod token;
 
+use crate::environment::Environment;
 use crate::scanner::Scanner;
 use std::env;
 use std::fs::File;
@@ -45,13 +47,11 @@ fn repl() {
 fn run_script(scripts: &String) {
     let scanner = Scanner::new(scripts);
     let tokens = scanner.scan();
-    println!("tokens: {:?}", tokens);
+    let ast = ast::Parser::new(&tokens).program();
+    let mut env = Environment::new();
 
-    let ast = ast::Parser::new(&tokens).expression();
-    println!("ast: {:?}", ast);
-
-    ast.into_iter().for_each(|ast| {
-        let eval_ret = eval::eval(&ast);
+    ast.into_iter().for_each(|a| {
+        let eval_ret = eval::eval(&a, &mut env);
         match eval_ret {
             Ok(result) => eval::print(result),
             Err(err) => println!("{:?}", err),

@@ -39,8 +39,8 @@ impl<'a> Scanner<'a> {
         let mut cur = 0;
         let mut line = 0;
         let mut tokens: Vec<Token> = vec![];
+        let chars = self.contents.chars().collect::<Vec<char>>();
         loop {
-            let chars = self.contents.chars().collect::<Vec<char>>();
             let cur_char = chars[cur];
             cur = match cur_char {
                 '\n' | '\r' => {
@@ -114,7 +114,7 @@ impl<'a> Scanner<'a> {
     /// # Return
     /// * bool - true: 終了 false: 未終了
     fn end(&self, num: usize) -> bool {
-        num >= self.contents.len()
+        num >= self.contents.chars().collect::<Vec<char>>().len()
     }
 
     /// TokenTypeのスキャン
@@ -158,7 +158,7 @@ impl<'a> Scanner<'a> {
             '*' => Token::new(TokenType::Star, None, cur, line),
             '/' => Token::new(TokenType::Slash, None, cur, line),
             '!' => Token::new(
-                if self.next_match(s, 1, '=') {
+                if self.next_match(s, cur + 1, '=') {
                     read_num += 1;
                     TokenType::BangEqual
                 } else {
@@ -169,7 +169,7 @@ impl<'a> Scanner<'a> {
                 line,
             ),
             '=' => Token::new(
-                if self.next_match(s, 1, '=') {
+                if self.next_match(s, cur + 1, '=') {
                     read_num += 1;
                     TokenType::EqualEqual
                 } else {
@@ -180,7 +180,7 @@ impl<'a> Scanner<'a> {
                 line,
             ),
             '<' => Token::new(
-                if self.next_match(s, 1, '=') {
+                if self.next_match(s, cur + 1, '=') {
                     read_num += 1;
                     TokenType::LessEqual
                 } else {
@@ -191,7 +191,7 @@ impl<'a> Scanner<'a> {
                 line,
             ),
             '>' => Token::new(
-                if self.next_match(s, 1, '=') {
+                if self.next_match(s, cur + 1, '=') {
                     read_num += 1;
                     TokenType::GreaterEqual
                 } else {
@@ -319,14 +319,14 @@ impl<'a> Scanner<'a> {
     ///
     /// # Return
     /// * bool - true: 一致 false: 不一致
-    fn next_match(&self, s: &Vec<char>, cur: usize, _e: char) -> bool {
+    fn next_match(&self, s: &Vec<char>, cur: usize, e: char) -> bool {
         // 文字列読み取り判定
         if s.len() < 2 {
             return false;
         }
 
         let c = s[cur];
-        matches!(c, _e)
+        c == e
     }
 }
 
@@ -436,6 +436,14 @@ mod test {
             Token::new(TokenType::LessEqual, None, 0, 0),
             Token::new(TokenType::String("test".to_string()), None, 2, 0),
             Token::new(TokenType::Eof, None, 8, 0),
+        ];
+        assert_eq!(expect, tokens);
+
+        let tokens = Scanner::new(&"=\"test\"".to_string()).scan();
+        let expect = vec![
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::String("test".to_string()), None, 1, 0),
+            Token::new(TokenType::Eof, None, 7, 0),
         ];
         assert_eq!(expect, tokens);
     }
@@ -601,6 +609,17 @@ mod test {
         let expect = vec![
             Token::new(TokenType::Var, None, 0, 0),
             Token::new(TokenType::Eof, None, 3, 0),
+        ];
+        assert_eq!(expect, tokens);
+
+        let tokens = Scanner::new(&"var a = 1;".to_string()).scan();
+        let expect = vec![
+            Token::new(TokenType::Var, None, 0, 0),
+            Token::new(TokenType::Identifier("a".to_string()), None, 4, 0),
+            Token::new(TokenType::Equal, None, 6, 0),
+            Token::new(TokenType::Number(1.0), None, 8, 0),
+            Token::new(TokenType::SemiColon, None, 9, 0),
+            Token::new(TokenType::Eof, None, 10, 0),
         ];
         assert_eq!(expect, tokens);
 

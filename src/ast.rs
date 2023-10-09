@@ -1,21 +1,43 @@
 //! EBNF
 //!
-//! expression -> equality
-//! equality   -> comparison ( ("!=" | "==") comparison ) *;
-//! comparison -> term ( (">" | ">=" | "<" | "<=" ) term ) *;
-//! term       -> factor ( ( "-" | "+" ) factor ) * ;
-//! factor     -> unary ( ( "/" | "*" ) unary ) * ;
-//! unary      -> ( "!" | "-" ) unary
-//!            | primary ;
-//! primary    -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
+//! program     -> declaration* EOF ;
+//! declaration -> varDecl
+//!              | statement ;
+//! varDecl     -> "var" IDENTIFIER ( "=" expression )? ";" ;
+//! statement   -> exprStmt
+//!              | printStmt
+//!              | block ;
+//! block       -> "" declaration* "" ;
+//! exprStmt    -> expression ";" ;
+//! printStmt   -> "print" expression ";" ;
+//! expression  -> assignment ;
+//! assignment  -> IDENTIFIER "=" assignment
+//!             | equality
+//! equality    -> comparison ( ("!=" | "==") comparison ) *;
+//! comparison  -> term ( (">" | ">=" | "<" | "<=" ) term ) *;
+//! term        -> factor ( ( "-" | "+" ) factor ) * ;
+//! factor      -> unary ( ( "/" | "*" ) unary ) * ;
+//! unary       -> ( "!" | "-" ) unary
+//!             | primary ;
+//! primary     -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER ;
 use crate::token::{Token, TokenType};
 use std::vec::Vec;
 
 type ParseResult = Result<AstType, String>;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum AstType {
     Experssion,
+
+    // varDecl
+    Var(String, Box<AstType>),
+
+    // statement
+    Print(Box<AstType>),
+    Block(Vec<AstType>),
+
+    // Assignment
+    Assign(String, Box<AstType>),
 
     // Equality
     BangEqual(Box<AstType>, Box<AstType>),
@@ -47,6 +69,7 @@ pub enum AstType {
     True,
     False,
     Nil,
+    Identifier(String),
 }
 
 pub struct Parser<'a> {
@@ -61,14 +84,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// expression parse
+    /// program parse
     ///
     /// # Returns
     /// * Vec<AstType> - パース結果
-    pub fn expression(&mut self) -> Vec<AstType> {
+    pub fn program(&mut self) -> Vec<AstType> {
         let mut result = vec![];
         loop {
-            if let Ok(parse_result) = self.equality() {
+            if let Ok(parse_result) = self.declaration() {
                 result.push(parse_result);
             } else {
                 // 文の区切りまでSKIPし、再度パースを行う
@@ -82,6 +105,159 @@ impl<'a> Parser<'a> {
         }
 
         result
+    }
+
+    /// declaration parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn declaration(&mut self) -> ParseResult {
+        if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::Var => self.var_declaration(),
+                _ => {
+                    self.back();
+                    self.statement()
+                }
+            }
+        } else {
+            Err(String::from("Could not read token"))
+        }
+    }
+
+    /// var declaration parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn var_declaration(&mut self) -> ParseResult {
+        if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::Identifier(i) => {
+                    let identifier = i.clone();
+                    if let Some(token) = self.token() {
+                        match token.token_type() {
+                            TokenType::Equal => {
+                                let expr = self.expression()?;
+                                self.consume(Some(TokenType::SemiColon))?;
+                                Ok(AstType::Var(identifier, Box::new(expr)))
+                            }
+                            // 初期化されていない変数は、nilで初期化
+                            TokenType::SemiColon => {
+                                Ok(AstType::Var(identifier, Box::new(AstType::Nil)))
+                            }
+                            _ => Err("Could not found SemiColon".to_owned()),
+                        }
+                    } else {
+                        Err(String::from("Can not found Identifier Token"))
+                    }
+                }
+                _ => Err(String::from("Can not found Identifier Token")),
+            }
+        } else {
+            Err(String::from("Could not read token"))
+        }
+    }
+
+    /// statement parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn statement(&mut self) -> ParseResult {
+        if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::Print => self.print_statement(),
+                TokenType::LeftBrace => self.block_statement(),
+                _ => {
+                    self.back();
+                    self.expression_stmt()
+                }
+            }
+        } else {
+            Err(String::from("Could not read token"))
+        }
+    }
+
+    /// print statement parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn print_statement(&mut self) -> ParseResult {
+        let expr = self.expression()?;
+        self.consume(Some(TokenType::SemiColon))?;
+
+        Ok(AstType::Print(Box::new(expr)))
+    }
+
+    /// block statement
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn block_statement(&mut self) -> ParseResult {
+        let mut ast = vec![];
+        loop {
+            if let Some(token) = self.token() {
+                match token.token_type() {
+                    TokenType::RightBrace => {
+                        self.back();
+                        break;
+                    }
+                    _ => {
+                        self.back();
+                        ast.push(self.declaration()?);
+                    }
+                }
+            } else {
+                return Err(String::from("Could not read token"));
+            }
+        }
+        self.consume(Some(TokenType::RightBrace))?;
+
+        Ok(AstType::Block(ast))
+    }
+
+    /// exprStmt parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn expression_stmt(&mut self) -> ParseResult {
+        let expr = self.expression()?;
+        self.consume(Some(TokenType::SemiColon))?;
+
+        Ok(expr)
+    }
+
+    /// expression parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn expression(&mut self) -> ParseResult {
+        self.assignment()
+    }
+
+    /// assignment parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn assignment(&mut self) -> ParseResult {
+        let expr = self.equality()?;
+
+        if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::Equal => match expr {
+                    AstType::Identifier(i) => {
+                        let right_expr = self.assignment()?;
+                        Ok(AstType::Assign(i, Box::new(right_expr)))
+                    }
+                    _ => Err(String::from("Could not found AstType::Identifier")),
+                },
+                _ => {
+                    self.back();
+                    Ok(expr)
+                }
+            }
+        } else {
+            Err(String::from("Could not read token"))
+        }
     }
 
     /// equality parse
@@ -255,10 +431,11 @@ impl<'a> Parser<'a> {
                 TokenType::False => Ok(AstType::False),
                 TokenType::Nil => Ok(AstType::Nil),
                 TokenType::LeftParen => {
-                    let expr = self.equality()?;
+                    let expr = self.expression()?;
                     self.consume(Some(TokenType::RightParen))?;
                     Ok(AstType::Grouping(Box::new(expr)))
                 }
+                TokenType::Identifier(i) => Ok(AstType::Identifier(i.to_string())),
                 _ => Err(format!("Not Support Token: {:?}", token)),
             }
         } else {
@@ -289,6 +466,10 @@ impl<'a> Parser<'a> {
     /// # Arguments
     /// * `expect_token` - Option型。次に期待するTokenがある場合に、指定する
     fn consume(&mut self, expect_token: Option<TokenType>) -> Result<(), String> {
+        if self.end() {
+            return Err(String::from("Could not read token"));
+        }
+
         let token = self.token().expect("Could not read token").token_type();
         if let Some(expect_token) = expect_token {
             if expect_token != *token {
@@ -344,33 +525,40 @@ mod test {
 
     #[test]
     fn 終端記号_parse() {
-        let tokens = vec![Token::new(TokenType::Number(1.0), None, 0, 0)];
+        let tokens = vec![
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::Number(1.0), parser.expression()[0]);
+        assert_eq!(AstType::Number(1.0), parser.program()[0]);
 
-        let tokens = vec![Token::new(
-            TokenType::String(String::from("test")),
-            None,
-            0,
-            0,
-        )];
+        let tokens = vec![
+            Token::new(TokenType::String(String::from("test")), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(
-            AstType::String(String::from("test")),
-            parser.expression()[0]
-        );
+        assert_eq!(AstType::String(String::from("test")), parser.program()[0]);
 
-        let tokens = vec![Token::new(TokenType::True, None, 0, 0)];
+        let tokens = vec![
+            Token::new(TokenType::True, None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::True, parser.expression()[0]);
+        assert_eq!(AstType::True, parser.program()[0]);
 
-        let tokens = vec![Token::new(TokenType::False, None, 0, 0)];
+        let tokens = vec![
+            Token::new(TokenType::False, None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::False, parser.expression()[0]);
+        assert_eq!(AstType::False, parser.program()[0]);
 
-        let tokens = vec![Token::new(TokenType::Nil, None, 0, 0)];
+        let tokens = vec![
+            Token::new(TokenType::Nil, None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
         let mut parser = Parser::new(&tokens);
-        assert_eq!(AstType::Nil, parser.expression()[0]);
+        assert_eq!(AstType::Nil, parser.program()[0]);
     }
 
     #[test]
@@ -379,11 +567,12 @@ mod test {
             Token::new(TokenType::LeftParen, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
             Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             AstType::Grouping(Box::new(AstType::Number(1.0))),
-            parser.expression()[0]
+            parser.program()[0]
         );
     }
 
@@ -392,20 +581,22 @@ mod test {
         let tokens = vec![
             Token::new(TokenType::Bang, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             AstType::Bang(Box::new(AstType::Number(1.0))),
-            parser.expression()[0]
+            parser.program()[0]
         );
         let tokens = vec![
             Token::new(TokenType::Minus, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
             AstType::UnaryMinus(Box::new(AstType::Number(1.0))),
-            parser.expression()[0]
+            parser.program()[0]
         );
     }
 
@@ -415,6 +606,7 @@ mod test {
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::Slash, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -422,13 +614,14 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::Star, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -436,7 +629,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
@@ -445,6 +638,7 @@ mod test {
             Token::new(TokenType::Number(3.0), None, 0, 0),
             Token::new(TokenType::Slash, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -455,7 +649,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
     }
 
@@ -465,6 +659,7 @@ mod test {
             Token::new(TokenType::String(String::from("a")), None, 0, 0),
             Token::new(TokenType::Plus, None, 0, 0),
             Token::new(TokenType::String(String::from("b")), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -472,13 +667,14 @@ mod test {
                 Box::new(AstType::String(String::from("a"))),
                 Box::new(AstType::String(String::from("b")))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::Plus, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -486,13 +682,14 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::Minus, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -500,7 +697,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
@@ -509,6 +706,7 @@ mod test {
             Token::new(TokenType::Number(3.0), None, 0, 0),
             Token::new(TokenType::Minus, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -519,7 +717,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
@@ -528,6 +726,7 @@ mod test {
             Token::new(TokenType::Number(3.0), None, 0, 0),
             Token::new(TokenType::Minus, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -538,7 +737,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
     }
 
@@ -550,6 +749,7 @@ mod test {
             Token::new(TokenType::Number(3.0), None, 0, 0),
             Token::new(TokenType::Star, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -560,7 +760,7 @@ mod test {
                     Box::new(AstType::Number(1.0)),
                 ))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
@@ -569,6 +769,7 @@ mod test {
             Token::new(TokenType::Number(3.0), None, 0, 0),
             Token::new(TokenType::Minus, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -579,7 +780,7 @@ mod test {
                 )),
                 Box::new(AstType::Number(1.0)),
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
     }
 
@@ -589,6 +790,7 @@ mod test {
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::Greater, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -596,13 +798,14 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::GreaterEqual, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -610,13 +813,14 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::Less, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -624,13 +828,14 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::LessEqual, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -638,7 +843,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
@@ -649,6 +854,7 @@ mod test {
             Token::new(TokenType::Number(3.0), None, 0, 0),
             Token::new(TokenType::Star, None, 0, 0),
             Token::new(TokenType::Number(4.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -662,7 +868,7 @@ mod test {
                     Box::new(AstType::Number(4.0))
                 )),
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
     }
 
@@ -672,6 +878,7 @@ mod test {
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::EqualEqual, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -679,13 +886,14 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
             Token::new(TokenType::Number(2.0), None, 0, 0),
             Token::new(TokenType::BangEqual, None, 0, 0),
             Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -693,7 +901,7 @@ mod test {
                 Box::new(AstType::Number(2.0)),
                 Box::new(AstType::Number(1.0))
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
 
         let tokens = vec![
@@ -704,6 +912,7 @@ mod test {
             Token::new(TokenType::Number(3.0), None, 0, 0),
             Token::new(TokenType::Star, None, 0, 0),
             Token::new(TokenType::Number(4.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
         assert_eq!(
@@ -717,7 +926,7 @@ mod test {
                     Box::new(AstType::Number(4.0))
                 )),
             ),
-            parser.expression()[0]
+            parser.program()[0]
         );
     }
 
@@ -728,22 +937,176 @@ mod test {
             Token::new(TokenType::Number(1.0), None, 0, 0),
             Token::new(TokenType::SemiColon, None, 0, 0),
             Token::new(TokenType::Number(8.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
         ];
         let mut parser = Parser::new(&tokens);
 
         // 不完全な文法部分がSKIPされていること
-        assert_eq!(AstType::Number(8.0), parser.expression()[0]);
+        assert_eq!(AstType::Number(8.0), parser.program()[0]);
     }
 
     #[test]
     fn 複数行_parse() {
         let tokens = vec![
             Token::new(TokenType::Number(1.0), None, 0, 0),
-            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 1, 0),
+            Token::new(TokenType::Number(2.0), None, 2, 0),
+            Token::new(TokenType::SemiColon, None, 1, 0),
         ];
         let mut parser = Parser::new(&tokens);
-        let result = parser.expression();
+        let result = parser.program();
         assert_eq!(AstType::Number(1.0), result[0]);
         assert_eq!(AstType::Number(2.0), result[1]);
+    }
+
+    #[test]
+    fn 文末にセミコロンがない_parse() {
+        let tokens = vec![Token::new(TokenType::Number(1.0), None, 0, 0)];
+        let mut parser = Parser::new(&tokens);
+        let result = parser.program();
+        assert_eq!(0, result.len());
+    }
+
+    #[test]
+    fn print_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Print, None, 0, 0),
+            Token::new(TokenType::String(String::from("test")), None, 1, 0),
+            Token::new(TokenType::SemiColon, None, 2, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Print(Box::new(AstType::String(String::from("test")))),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn identifier_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Var, None, 0, 0),
+            Token::new(TokenType::Identifier(String::from("test")), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Var(String::from("test"), Box::new(AstType::Number(2.0))),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Var, None, 0, 0),
+            Token::new(TokenType::Identifier(String::from("test")), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::String("Hello".to_owned()), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Var(
+                String::from("test"),
+                Box::new(AstType::String("Hello".to_owned()))
+            ),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Var, None, 0, 0),
+            Token::new(TokenType::Identifier(String::from("test")), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::Plus, None, 0, 0),
+            Token::new(TokenType::Number(3.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Var(
+                String::from("test"),
+                Box::new(AstType::Plus(
+                    Box::new(AstType::Number(2.0)),
+                    Box::new(AstType::Number(3.0)),
+                ))
+            ),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Var, None, 0, 0),
+            Token::new(TokenType::Identifier(String::from("a")), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+            Token::new(TokenType::Print, None, 0, 0),
+            Token::new(TokenType::Identifier("a".to_string()), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        let result = parser.program();
+        assert_eq!(
+            AstType::Var(String::from("a"), Box::new(AstType::Number(2.0))),
+            result[0]
+        );
+        assert_eq!(
+            AstType::Print(Box::new(AstType::Identifier("a".to_string()))),
+            result[1]
+        );
+    }
+
+    #[test]
+    fn assign_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Identifier("test".to_string()), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Assign(String::from("test"), Box::new(AstType::Number(1.0))),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Identifier("test".to_string()), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::Plus, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Assign(
+                String::from("test"),
+                Box::new(AstType::Plus(
+                    Box::new(AstType::Number(1.0)),
+                    Box::new(AstType::Number(2.0))
+                ))
+            ),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn block_parse() {
+        let tokens = vec![
+            Token::new(TokenType::LeftBrace, None, 0, 0),
+            Token::new(TokenType::Identifier("test".to_string()), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+            Token::new(TokenType::RightBrace, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Block(vec![AstType::Assign(
+                String::from("test"),
+                Box::new(AstType::Number(1.0))
+            ),]),
+            parser.program()[0]
+        );
     }
 }
