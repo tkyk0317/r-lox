@@ -5,14 +5,25 @@
 //!              | statement ;
 //! varDecl     -> "var" IDENTIFIER ( "=" expression )? ";" ;
 //! statement   -> exprStmt
+//!              | ifStmt
 //!              | printStmt
+//!              | whileStmt
+//!              | forStmt
 //!              | block ;
+//! forStmt     -> "for" "(" ( varDecl | exprStmt | ";")
+//!                expression> ";"
+//!                expression? ")" statement ;
+//! whileStmt   -> "while" "(" expression ")" statement ;
+//! ifStmt      -> "if" "(" expression ")" statement
+//!                ( "else" statement )? ;
 //! block       -> "" declaration* "" ;
 //! exprStmt    -> expression ";" ;
 //! printStmt   -> "print" expression ";" ;
 //! expression  -> assignment ;
 //! assignment  -> IDENTIFIER "=" assignment
-//!             | equality
+//!             | logic_or
+//! logic_or    -> logic_and ( "or" logic_and )* ;
+//! logic_and   -> equality ( "and" equality )* ;
 //! equality    -> comparison ( ("!=" | "==") comparison ) *;
 //! comparison  -> term ( (">" | ">=" | "<" | "<=" ) term ) *;
 //! term        -> factor ( ( "-" | "+" ) factor ) * ;
@@ -27,14 +38,14 @@ type ParseResult = Result<AstType, String>;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum AstType {
-    Experssion,
-
     // varDecl
     Var(String, Box<AstType>),
 
     // statement
     Print(Box<AstType>),
     Block(Vec<AstType>),
+    While(Box<AstType>, Box<AstType>),
+    If(Box<AstType>, Box<AstType>, Box<AstType>),
 
     // Assignment
     Assign(String, Box<AstType>),
@@ -42,6 +53,8 @@ pub enum AstType {
     // Equality
     BangEqual(Box<AstType>, Box<AstType>),
     EqualEqual(Box<AstType>, Box<AstType>),
+    And(Box<AstType>, Box<AstType>),
+    Or(Box<AstType>, Box<AstType>),
 
     // Comparison
     Greater(Box<AstType>, Box<AstType>),
@@ -61,6 +74,7 @@ pub enum AstType {
     Bang(Box<AstType>),
     UnaryMinus(Box<AstType>),
 
+    // primary
     Grouping(Box<AstType>),
 
     // 終端記号
@@ -166,6 +180,9 @@ impl<'a> Parser<'a> {
         if let Some(token) = self.token() {
             match token.token_type() {
                 TokenType::Print => self.print_statement(),
+                TokenType::If => self.if_statement(),
+                TokenType::While => self.while_statement(),
+                TokenType::For => self.for_statement(),
                 TokenType::LeftBrace => self.block_statement(),
                 _ => {
                     self.back();
@@ -175,6 +192,110 @@ impl<'a> Parser<'a> {
         } else {
             Err(String::from("Could not read token"))
         }
+    }
+
+    /// while statement parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn while_statement(&mut self) -> ParseResult {
+        self.consume(Some(TokenType::LeftParen))?;
+        let condition = self.expression()?;
+        self.consume(Some(TokenType::RightParen))?;
+        let stmt = self.statement()?;
+
+        Ok(AstType::While(Box::new(condition), Box::new(stmt)))
+    }
+
+    /// for statement parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn for_statement(&mut self) -> ParseResult {
+        self.consume(Some(TokenType::LeftParen))?;
+        let initialize = if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::SemiColon => AstType::Nil,
+                TokenType::Var => self.var_declaration()?,
+                _ => {
+                    self.back();
+                    self.expression_stmt()?
+                }
+            }
+        } else {
+            return Err(String::from("Could not read token"));
+        };
+
+        let condition = if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::SemiColon => {
+                    self.back();
+                    AstType::True
+                }
+                _ => {
+                    self.back();
+                    self.expression()?
+                }
+            }
+        } else {
+            return Err(String::from("Could not read token"));
+        };
+        self.consume(Some(TokenType::SemiColon))?;
+
+        let increment = if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::RightParen => {
+                    self.back();
+                    AstType::Nil
+                }
+                _ => {
+                    self.back();
+                    self.expression()?
+                }
+            }
+        } else {
+            return Err(String::from("Could not read token"));
+        };
+        self.consume(Some(TokenType::RightParen))?;
+
+        let stmt = self.statement()?;
+
+        Ok(AstType::Block(vec![
+            initialize,
+            AstType::While(
+                Box::new(condition),
+                Box::new(AstType::Block(vec![stmt, increment])),
+            ),
+        ]))
+    }
+
+    /// if statement parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn if_statement(&mut self) -> ParseResult {
+        self.consume(Some(TokenType::LeftParen))?;
+        let condition = self.expression()?;
+        self.consume(Some(TokenType::RightParen))?;
+        let if_stmt = self.statement()?;
+
+        let mut else_stmt = AstType::Nil;
+        if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::Else => {
+                    else_stmt = self.statement()?;
+                }
+                _ => {
+                    self.back();
+                }
+            }
+        }
+
+        Ok(AstType::If(
+            Box::new(condition),
+            Box::new(if_stmt),
+            Box::new(else_stmt),
+        ))
     }
 
     /// print statement parse
@@ -239,7 +360,7 @@ impl<'a> Parser<'a> {
     /// # Returns
     /// * Vec<AstType> - パース結果
     fn assignment(&mut self) -> ParseResult {
-        let expr = self.equality()?;
+        let expr = self.or_parse()?;
 
         if let Some(token) = self.token() {
             match token.token_type() {
@@ -258,6 +379,60 @@ impl<'a> Parser<'a> {
         } else {
             Err(String::from("Could not read token"))
         }
+    }
+
+    /// or parse
+    ///
+    /// # Returns
+    /// * Result<AstType, ()> - パース結果
+    fn or_parse(&mut self) -> ParseResult {
+        let mut expr = self.and_parse()?;
+
+        loop {
+            if let Some(token) = self.token() {
+                match token.token_type() {
+                    TokenType::Or => {
+                        let right = self.and_parse()?;
+                        expr = AstType::Or(Box::new(expr), Box::new(right));
+                    }
+                    _ => {
+                        self.back();
+                        break;
+                    }
+                };
+            } else {
+                return Err(String::from("Could not read token"));
+            }
+        }
+
+        Ok(expr)
+    }
+
+    /// and parse
+    ///
+    /// # Returns
+    /// * Result<AstType, ()> - パース結果
+    fn and_parse(&mut self) -> ParseResult {
+        let mut expr = self.equality()?;
+
+        loop {
+            if let Some(token) = self.token() {
+                match token.token_type() {
+                    TokenType::And => {
+                        let right = self.equality()?;
+                        expr = AstType::And(Box::new(expr), Box::new(right));
+                    }
+                    _ => {
+                        self.back();
+                        break;
+                    }
+                };
+            } else {
+                return Err(String::from("Could not read token"));
+            }
+        }
+
+        Ok(expr)
     }
 
     /// equality parse
@@ -1106,6 +1281,239 @@ mod test {
                 String::from("test"),
                 Box::new(AstType::Number(1.0))
             ),]),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn if_parse() {
+        let tokens = vec![
+            Token::new(TokenType::If, None, 0, 0),
+            Token::new(TokenType::LeftParen, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+            Token::new(TokenType::Else, None, 0, 0),
+            Token::new(TokenType::Number(3.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::If(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::Number(2.0)),
+                Box::new(AstType::Number(3.0)),
+            ),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::If, None, 0, 0),
+            Token::new(TokenType::LeftParen, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::If(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::Number(2.0)),
+                Box::new(AstType::Nil),
+            ),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::If, None, 0, 0),
+            Token::new(TokenType::LeftParen, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::Less, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::Number(3.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::If(
+                Box::new(AstType::Less(
+                    Box::new(AstType::Number(1.0)),
+                    Box::new(AstType::Number(2.0)),
+                )),
+                Box::new(AstType::Number(3.0)),
+                Box::new(AstType::Nil),
+            ),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn or_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::Or, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Or(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::Number(2.0)),
+            ),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::Or, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::Or, None, 0, 0),
+            Token::new(TokenType::Number(3.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Or(
+                Box::new(AstType::Or(
+                    Box::new(AstType::Number(1.0)),
+                    Box::new(AstType::Number(2.0)),
+                )),
+                Box::new(AstType::Number(3.0)),
+            ),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn and_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::And, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::And(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::Number(2.0)),
+            ),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::And, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::And, None, 0, 0),
+            Token::new(TokenType::Number(3.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::And(
+                Box::new(AstType::And(
+                    Box::new(AstType::Number(1.0)),
+                    Box::new(AstType::Number(2.0)),
+                )),
+                Box::new(AstType::Number(3.0)),
+            ),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn or_and_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::Or, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::And, None, 0, 0),
+            Token::new(TokenType::Number(3.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Or(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::And(
+                    Box::new(AstType::Number(2.0)),
+                    Box::new(AstType::Number(3.0)),
+                )),
+            ),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn while_parse() {
+        let tokens = vec![
+            Token::new(TokenType::While, None, 0, 0),
+            Token::new(TokenType::LeftParen, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::While(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::Number(2.0)),
+            ),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn for_parse() {
+        let tokens = vec![
+            Token::new(TokenType::For, None, 0, 0),
+            Token::new(TokenType::LeftParen, None, 0, 0),
+            Token::new(TokenType::Var, None, 0, 0),
+            Token::new(TokenType::Identifier("a".to_string()), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+            Token::new(TokenType::Identifier("a".to_string()), None, 0, 0),
+            Token::new(TokenType::Less, None, 0, 0),
+            Token::new(TokenType::Number(10.0), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+            Token::new(TokenType::Identifier("a".to_string()), None, 0, 0),
+            Token::new(TokenType::Equal, None, 0, 0),
+            Token::new(TokenType::Identifier("a".to_string()), None, 0, 0),
+            Token::new(TokenType::Plus, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::Print, None, 0, 0),
+            Token::new(TokenType::String("Hello".to_string()), None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Block(vec![
+                AstType::Var("a".to_string(), Box::new(AstType::Number(1.0))),
+                AstType::While(
+                    Box::new(AstType::Less(
+                        Box::new(AstType::Identifier("a".to_string())),
+                        Box::new(AstType::Number(10.0))
+                    )),
+                    Box::new(AstType::Block(vec![
+                        AstType::Print(Box::new(AstType::String("Hello".to_string()))),
+                        AstType::Assign(
+                            "a".to_string(),
+                            Box::new(AstType::Plus(
+                                Box::new(AstType::Identifier("a".to_string())),
+                                Box::new(AstType::Number(1.0))
+                            ))
+                        )
+                    ]))
+                )
+            ]),
             parser.program()[0]
         );
     }

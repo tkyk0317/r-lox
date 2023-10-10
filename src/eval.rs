@@ -85,12 +85,13 @@ pub fn eval(ast: &AstType, env: &mut Environment) -> EvalResult {
         AstType::Identifier(i) => identifier(i, env),
         AstType::Assign(i, o) => assign(i, eval(o, env)?, env),
         AstType::Grouping(o) => eval(o, env),
-        AstType::Block(o) => {
-            // ブロック用の環境を作成
-            let mut block_env = Environment::with_enclosing(env.clone());
-            block(o, &mut block_env)
+        AstType::Block(o) => block(o, env),
+        AstType::If(cond, if_stmt, else_stmt) => {
+            if_eval(eval(cond, env)?, eval(if_stmt, env)?, eval(else_stmt, env)?)
         }
-        _ => panic!(""),
+        AstType::Or(left, right) => or_eval(eval(left, env)?, eval(right, env)?),
+        AstType::And(left, right) => and_eval(eval(left, env)?, eval(right, env)?),
+        AstType::While(cond, stmt) => while_eval(cond, stmt, env),
     }
 }
 
@@ -356,7 +357,7 @@ fn print_stmt(operand: Operand) -> EvalResult {
 /// * EvalResult - 評価後の値
 fn var_decl(i: &String, right: Operand, env: &mut Environment) -> EvalResult {
     let value = to_env_value(right);
-    env.push(i.to_string(), value);
+    env.define(i.to_string(), value);
 
     Ok(Box::new(None::<()>))
 }
@@ -426,12 +427,90 @@ fn to_env_value(operand: Operand) -> Value {
 /// # Return
 /// * EvalResult - 評価後の値
 fn block(ast_arr: &Vec<AstType>, env: &mut Environment) -> EvalResult {
+    // ブロック内の環境を作成
     let mut ret: EvalResult = Ok(Box::new(None::<()>));
+    let mut block_env = Environment::with_enclosing(env.clone());
+
     for ast in ast_arr {
-        ret = eval(ast, env);
+        ret = eval(ast, &mut block_env);
     }
 
+    // ブロック内で更新された環境で上書き
+    *env = *block_env.enclosing.unwrap().clone();
+
     ret
+}
+
+/// if文評価
+///
+/// # Arguments
+/// * `cond` - 条件式
+/// * `if_stmt` - ifブロック
+/// * `else_stmt` - elseブロック
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn if_eval(cond: Operand, if_stmt: Operand, else_stmt: Operand) -> EvalResult {
+    let result = downcast::<bool>(cond);
+    if result {
+        Ok(if_stmt)
+    } else {
+        Ok(else_stmt)
+    }
+}
+
+/// while文評価
+///
+/// # Arguments
+/// * `cond` - 条件式
+/// * `stmt` - ブロック
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn while_eval(cond: &AstType, stmt: &AstType, env: &mut Environment) -> EvalResult {
+    loop {
+        let cond_ret = downcast::<bool>(eval(cond, env)?);
+        if !cond_ret {
+            break;
+        }
+        eval(stmt, env)?;
+    }
+
+    Ok(Box::new(None::<()>))
+}
+
+/// or評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn or_eval(left: Operand, right: Operand) -> EvalResult {
+    if type_check::<bool>(&left, &right) {
+        let (l, r) = (downcast::<bool>(left), downcast::<bool>(right));
+        Ok(Box::new(l || r))
+    } else {
+        Err(RuntimeError::TwoOperandType(left, right))
+    }
+}
+
+/// and評価
+///
+/// # Arguments
+/// * `left` - 左オペランド
+/// * `right` - 右オペランド
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn and_eval(left: Operand, right: Operand) -> EvalResult {
+    if type_check::<bool>(&left, &right) {
+        let (l, r) = (downcast::<bool>(left), downcast::<bool>(right));
+        Ok(Box::new(l && r))
+    } else {
+        Err(RuntimeError::TwoOperandType(left, right))
+    }
 }
 
 /// オペランド型チェック
@@ -1020,6 +1099,67 @@ mod test {
         assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
 
         let ast = AstType::LessEqual(Box::new(AstType::True), Box::new(AstType::False));
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn if_eval() {
+        let ast = AstType::If(
+            Box::new(AstType::Less(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::Number(2.0)),
+            )),
+            Box::new(AstType::Number(3.0)),
+            Box::new(AstType::Number(4.0)),
+        );
+        let mut env = Environment::new();
+        assert_eq!(
+            3.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
+
+        let ast = AstType::If(
+            Box::new(AstType::Greater(
+                Box::new(AstType::Number(1.0)),
+                Box::new(AstType::Number(2.0)),
+            )),
+            Box::new(AstType::Number(3.0)),
+            Box::new(AstType::Number(4.0)),
+        );
+        let mut env = Environment::new();
+        assert_eq!(
+            4.0,
+            *eval(&ast, &mut env).unwrap().downcast::<f64>().unwrap()
+        );
+    }
+
+    #[test]
+    fn or_eval() {
+        let ast = AstType::Or(Box::new(AstType::True), Box::new(AstType::True));
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
+
+        let ast = AstType::Or(Box::new(AstType::True), Box::new(AstType::False));
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
+
+        let ast = AstType::Or(Box::new(AstType::False), Box::new(AstType::False));
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn and_eval() {
+        let ast = AstType::And(Box::new(AstType::True), Box::new(AstType::True));
+        let mut env = Environment::new();
+        assert!(*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
+
+        let ast = AstType::And(Box::new(AstType::True), Box::new(AstType::False));
+        let mut env = Environment::new();
+        assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
+
+        let ast = AstType::And(Box::new(AstType::False), Box::new(AstType::False));
         let mut env = Environment::new();
         assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
     }
