@@ -9,7 +9,7 @@ pub enum Value {
 
 #[derive(Debug, Clone)]
 pub struct Environment {
-    enclosing: Option<Box<Environment>>,
+    pub enclosing: Option<Box<Environment>>,
     variables: HashMap<String, Value>,
 }
 
@@ -28,8 +28,19 @@ impl Environment {
         instance
     }
 
-    pub fn push(&mut self, key: String, value: Value) -> Option<Value> {
+    pub fn define(&mut self, key: String, value: Value) -> Option<Value> {
         self.variables.insert(key, value)
+    }
+
+    pub fn push(&mut self, key: String, value: Value) -> Option<Value> {
+        let mut result = None;
+        if self.variables.get(&key).is_some() {
+            result = self.variables.insert(key, value);
+        } else if self.enclosing.is_some() {
+            result = self.enclosing.as_mut().unwrap().push(key, value);
+        }
+
+        result
     }
 
     pub fn get(&self, key: &String) -> Option<&Value> {
@@ -50,13 +61,13 @@ mod test {
     #[test]
     fn 環境テスト() {
         let mut env = Environment::new();
-        env.push("a".to_string(), Value::F64(1.0));
+        env.define("a".to_string(), Value::F64(1.0));
         let val = env.get(&"a".to_string());
         assert!(val.is_some());
         assert_eq!(&Value::F64(1.0), val.unwrap());
 
         let mut block_env = Environment::with_enclosing(env.clone());
-        block_env.push("a".to_string(), Value::F64(10.0));
+        block_env.define("a".to_string(), Value::F64(10.0));
         assert_eq!(&Value::F64(10.0), block_env.get(&"a".to_string()).unwrap());
     }
 }
