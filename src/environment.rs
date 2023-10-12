@@ -1,3 +1,4 @@
+use crate::ast::AstType;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -5,6 +6,8 @@ pub enum Value {
     F64(f64),
     String(String),
     Bool(bool),
+    UserFunc(Vec<AstType>, AstType),
+    EmbeddedFunc(fn()), // TODO: 可変長引数に対応したい
 }
 
 #[derive(Debug, Clone)]
