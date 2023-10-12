@@ -45,3 +45,6 @@ print "for loop";
 for (var a = 0; a < 10; a = a + 1) {
     print a;
 }
+
+// 組み込み関数
+clock();

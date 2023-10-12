@@ -28,8 +28,9 @@
 //! comparison  -> term ( (">" | ">=" | "<" | "<=" ) term ) *;
 //! term        -> factor ( ( "-" | "+" ) factor ) * ;
 //! factor      -> unary ( ( "/" | "*" ) unary ) * ;
-//! unary       -> ( "!" | "-" ) unary
-//!             | primary ;
+//! unary       -> ( "!" | "-" ) unary | call ;
+//! call        -> primary ( "(" arguments? ")" )* ;
+//! arguments   -> expression ( "," expression )* ;
 //! primary     -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER ;
 use crate::token::{Token, TokenType};
 use std::vec::Vec;
@@ -44,8 +45,8 @@ pub enum AstType {
     // statement
     Print(Box<AstType>),
     Block(Vec<AstType>),
-    While(Box<AstType>, Box<AstType>),
-    If(Box<AstType>, Box<AstType>, Box<AstType>),
+    While(Box<AstType>, Box<AstType>),            // 条件、ブロック
+    If(Box<AstType>, Box<AstType>, Box<AstType>), // 条件、IFブロック、ELSEブロック
 
     // Assignment
     Assign(String, Box<AstType>),
@@ -73,6 +74,7 @@ pub enum AstType {
     // Unary
     Bang(Box<AstType>),
     UnaryMinus(Box<AstType>),
+    Call(String, Vec<AstType>), // 関数名、引数
 
     // primary
     Grouping(Box<AstType>),
@@ -584,12 +586,79 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     self.back();
-                    self.primary()
+                    self.call()
                 }
             }
         } else {
             Err(String::from("Could not read token"))
         }
+    }
+
+    /// call parse
+    ///
+    /// # Returns
+    /// * Result<AstType, ()> - パース結果
+    fn call(&mut self) -> ParseResult {
+        let expr = self.primary()?;
+
+        if let Some(token) = self.token() {
+            match token.token_type() {
+                TokenType::LeftParen => {
+                    let arguments = self.arguments();
+                    match expr {
+                        AstType::Identifier(i) => Ok(AstType::Call(i, arguments)),
+                        _ => Err(String::from("Could not found AstType::Identifier")),
+                    }
+                }
+                _ => {
+                    self.back();
+                    Ok(expr)
+                }
+            }
+        } else {
+            Err(String::from("Could not read token"))
+        }
+    }
+
+    /// arguments parse
+    ///
+    /// # Returns
+    /// * Vec<AstType> - パース結果
+    fn arguments(&mut self) -> Vec<AstType> {
+        let mut arguments = vec![];
+
+        loop {
+            if let Some(token) = self.token() {
+                match token.token_type() {
+                    TokenType::RightParen => {
+                        self.back();
+                        break;
+                    }
+                    TokenType::Comma => continue,
+                    _ => {
+                        self.back();
+                        let arg = self.expression();
+                        if let Ok(arg) = arg {
+                            arguments.push(arg);
+                        }
+                    }
+                }
+            } else {
+                panic!("Could not read token")
+            }
+
+            // 引数の数は255までしか解釈しない
+            if arguments.len() >= 255 {
+                println!("Can not have more than 255 arguments");
+                break;
+            }
+        }
+
+        if let Err(err) = self.consume(Some(TokenType::RightParen)) {
+            panic!("Could not found RightParen: {:?}", err)
+        }
+
+        arguments
     }
 
     /// primary parse
@@ -1514,6 +1583,39 @@ mod test {
                     ]))
                 )
             ]),
+            parser.program()[0]
+        );
+    }
+
+    #[test]
+    fn 関数コール_parse() {
+        let tokens = vec![
+            Token::new(TokenType::Identifier("test_func".to_string()), None, 0, 0),
+            Token::new(TokenType::LeftParen, None, 0, 0),
+            Token::new(TokenType::Number(1.0), None, 0, 0),
+            Token::new(TokenType::Comma, None, 0, 0),
+            Token::new(TokenType::Number(2.0), None, 0, 0),
+            Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Call(
+                "test_func".to_string(),
+                vec![AstType::Number(1.0), AstType::Number(2.0)]
+            ),
+            parser.program()[0]
+        );
+
+        let tokens = vec![
+            Token::new(TokenType::Identifier("test_func".to_string()), None, 0, 0),
+            Token::new(TokenType::LeftParen, None, 0, 0),
+            Token::new(TokenType::RightParen, None, 0, 0),
+            Token::new(TokenType::SemiColon, None, 0, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+        assert_eq!(
+            AstType::Call("test_func".to_string(), vec![],),
             parser.program()[0]
         );
     }

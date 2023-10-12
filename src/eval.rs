@@ -9,6 +9,7 @@ pub enum RuntimeError {
     OperandType(Operand),
     TwoOperandType(Operand, Operand),
     NotFoundVar(String),
+    NotFoundFunc(String),
 }
 impl RuntimeError {
     fn operand_type(&self, operand: &Operand) -> Option<&str> {
@@ -32,6 +33,7 @@ impl RuntimeError {
                 self.operand_type(r)
             ),
             Self::NotFoundVar(v) => format!("Could not found variable: {:?}", v),
+            Self::NotFoundFunc(v) => format!("Could not found function: {:?}", v),
         }
     }
 }
@@ -92,6 +94,7 @@ pub fn eval(ast: &AstType, env: &mut Environment) -> EvalResult {
         AstType::Or(left, right) => or_eval(eval(left, env)?, eval(right, env)?),
         AstType::And(left, right) => and_eval(eval(left, env)?, eval(right, env)?),
         AstType::While(cond, stmt) => while_eval(cond, stmt, env),
+        AstType::Call(callee, arguments) => call_eval(callee, arguments, env),
     }
 }
 
@@ -109,8 +112,7 @@ pub fn print(result: Operand) {
 /// プラス演算子評価
 ///
 /// # Arguments
-/// * `left` - 左オペランド
-/// * `right` - 右オペランド
+// * `right` - 右オペランド
 ///
 /// # Return
 /// * Operand - 評価後の値（f64 or String）
@@ -376,6 +378,7 @@ fn identifier(i: &String, env: &mut Environment) -> EvalResult {
             Value::F64(f) => Ok(Box::new(*f)),
             Value::String(s) => Ok(Box::new(s.to_string())),
             Value::Bool(b) => Ok(Box::new(*b)),
+            _ => Err(RuntimeError::NotFoundVar(i.to_string())),
         }
     } else {
         Err(RuntimeError::NotFoundVar(i.to_string()))
@@ -475,6 +478,55 @@ fn while_eval(cond: &AstType, stmt: &AstType, env: &mut Environment) -> EvalResu
         }
         eval(stmt, env)?;
     }
+
+    Ok(Box::new(None::<()>))
+}
+
+/// call評価
+///
+/// # Arguments
+/// * `callee` - 関数名などのcallee
+/// * `arguments` - 引数列
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn call_eval(callee: &String, arguments: &[AstType], env: &mut Environment) -> EvalResult {
+    let args_val: Vec<_> = arguments.iter().map(|arg| eval(arg, env)).collect();
+    if let Some(func) = env.clone().get(callee) {
+        match func {
+            Value::UserFunc(args, body) => call_func(body, args, &args_val, env),
+            Value::EmbeddedFunc(f) => {
+                f();
+
+                Ok(Box::new(None::<()>))
+            }
+            _ => Err(RuntimeError::NotFoundFunc(callee.to_string())),
+        }
+    } else {
+        Err(RuntimeError::NotFoundFunc(callee.to_string()))
+    }
+}
+
+/// call function
+///
+/// # Arguments
+/// * `func` - 関数内容
+/// * `args` - 引数列定義
+/// * `args_val` - 引数値
+/// * `env` - 環境
+///
+/// # Return
+/// * EvalResult - 評価後の値
+fn call_func(
+    body: &AstType,
+    args: &Vec<AstType>,
+    args_val: &Vec<EvalResult>,
+    env: &mut Environment,
+) -> EvalResult {
+    // TODO: 引数の内容を環境に設定
+
+    // 関数評価
+    eval(body, env)?;
 
     Ok(Box::new(None::<()>))
 }
@@ -1162,5 +1214,23 @@ mod test {
         let ast = AstType::And(Box::new(AstType::False), Box::new(AstType::False));
         let mut env = Environment::new();
         assert!(!*eval(&ast, &mut env).unwrap().downcast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn call_eval() {
+        let ast = AstType::Call("clock".to_string(), vec![]);
+        let mut env = Environment::new();
+        let ret = env.define(
+            "clock".to_string(),
+            Value::EmbeddedFunc(crate::embedded::func::clock),
+        );
+        dbg!(ret);
+        assert_eq!(
+            None::<()>,
+            *eval(&ast, &mut env)
+                .unwrap()
+                .downcast::<Option<()>>()
+                .unwrap()
+        );
     }
 }
