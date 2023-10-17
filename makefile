@@ -36,7 +36,7 @@ run: docker-build
 		-t \
 		--rm \
 		r-lox \
-		cargo r -- ./sample/sample.lox
+		sh -c "RUST_BACKTRACE=1 cargo r -- ./sample/sample.lox"
 
 .PHONY: watch
 watch: docker-build
