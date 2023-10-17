@@ -44,7 +44,7 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Token {
     token: TokenType,
     lexeme: Option<String>,

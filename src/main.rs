@@ -1,9 +1,11 @@
 mod ast;
+mod embedded;
 mod environment;
 mod eval;
 mod scanner;
 mod token;
 
+use crate::embedded::func;
 use crate::environment::Environment;
 use crate::scanner::Scanner;
 use std::env;
@@ -48,7 +50,8 @@ fn run_script(scripts: &String) {
     let scanner = Scanner::new(scripts);
     let tokens = scanner.scan();
     let ast = ast::Parser::new(&tokens).program();
-    let mut env = Environment::new();
+    let env = Environment::new();
+    let mut env = func::register_func(&env);
 
     ast.into_iter().for_each(|a| {
         let eval_ret = eval::eval(&a, &mut env);
