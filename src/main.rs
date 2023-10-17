@@ -5,7 +5,8 @@ mod eval;
 mod scanner;
 mod token;
 
-use crate::environment::{Environment, Value};
+use crate::embedded::func;
+use crate::environment::Environment;
 use crate::scanner::Scanner;
 use std::env;
 use std::fs::File;
@@ -50,7 +51,7 @@ fn run_script(scripts: &String) {
     let tokens = scanner.scan();
     let ast = ast::Parser::new(&tokens).program();
     let env = Environment::new();
-    let mut env = register_func(&env);
+    let mut env = func::register_func(&env);
 
     ast.into_iter().for_each(|a| {
         let eval_ret = eval::eval(&a, &mut env);
@@ -59,16 +60,4 @@ fn run_script(scripts: &String) {
             Err(err) => println!("{:?}", err),
         };
     });
-}
-
-// 組み込み関数登録
-fn register_func(env: &Environment) -> Environment {
-    let mut env = env.clone();
-
-    env.define(
-        "clock".to_string(),
-        Value::EmbeddedFunc(crate::embedded::func::clock),
-    );
-
-    env
 }

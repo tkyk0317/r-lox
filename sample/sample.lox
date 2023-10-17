@@ -48,3 +48,46 @@ for (var a = 0; a < 10; a = a + 1) {
 
 // 組み込み関数
 clock();
+
+// User func
+fun sample(a) {
+    print "call sample func";
+
+    print a;
+    var b = a * 100;
+    print b;
+}
+
+sample(1);
+sample(999);
+
+fun count(n) {
+    if (n > 1) count(n - 1);
+
+    print n;
+}
+
+count(3);
+
+fun add(x, y, z, f) {
+    if (f) {
+        return 0;
+    }
+
+    return x + y + z;
+}
+
+print add(9, 9, 9 , true);
+var n = add(1, 2, 3, false) + 100;
+print n;
+
+fun clojure() {
+    var clojure_tmp = 1;
+    fun clojure_2() {
+        print "clojure_2を呼び出し";
+    }
+
+    return clojure_2();
+}
+
+clojure();
