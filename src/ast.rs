@@ -114,13 +114,16 @@ impl<'a> Parser<'a> {
     pub fn program(&mut self) -> Vec<AstType> {
         let mut result = vec![];
         loop {
-            if let Ok(parse_result) = self.declaration() {
-                result.push(parse_result);
-            } else {
-                // 文の区切りまでSKIPし、再度パースを行う
-                self.back();
-                self.synchronize();
-            }
+            self.declaration().map_or_else(
+                |_| {
+                    // 文の区切りまでSKIPし、再度パースを行う
+                    self.back();
+                    self.synchronize();
+                },
+                |parse_result| {
+                    result.push(parse_result);
+                },
+            );
 
             if self.end() {
                 break;
@@ -135,18 +138,17 @@ impl<'a> Parser<'a> {
     /// # Returns
     /// * Vec<AstType> - パース結果
     fn declaration(&mut self) -> ParseResult {
-        if let Some(token) = self.token() {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::Var => self.var_declaration(),
                 TokenType::Fun => self.fun_declaration(),
                 _ => {
                     self.back();
                     self.statement()
                 }
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// fun declaration parse
@@ -154,8 +156,9 @@ impl<'a> Parser<'a> {
     /// # Returns
     /// * Vec<AstType> - パース結果
     fn fun_declaration(&mut self) -> ParseResult {
-        if let Some(token) = self.token() {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::Identifier(i) => {
                     let identifier = i.clone();
                     self.consume(Some(TokenType::LeftParen))?;
@@ -166,10 +169,8 @@ impl<'a> Parser<'a> {
                     Ok(AstType::Fun(identifier.to_string(), args, Box::new(body)))
                 }
                 _ => Err(String::from("Can not found Identifier Token")),
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// function parameter parse
@@ -189,17 +190,18 @@ impl<'a> Parser<'a> {
                     TokenType::Comma => continue,
                     _ => {
                         self.back();
-                        let arg = if let Some(token) = self.token() {
-                            match token.token_type() {
-                                TokenType::Identifier(_i) => {
-                                    self.back();
-                                    self.primary()
-                                }
-                                _ => Err("Could not found Identifier".to_string()),
-                            }
-                        } else {
-                            Err("Could not read token".to_string())
-                        };
+                        let arg =
+                            self.token()
+                                .map_or(
+                                    Err("Could not read token".to_string()),
+                                    |token| match token.token_type() {
+                                        TokenType::Identifier(_i) => {
+                                            self.back();
+                                            self.primary()
+                                        }
+                                        _ => Err("Could not found Identifier".to_string()),
+                                    },
+                                );
 
                         match arg {
                             Ok(arg) => arguments.push(arg),
@@ -226,32 +228,32 @@ impl<'a> Parser<'a> {
     /// # Returns
     /// * Vec<AstType> - パース結果
     fn var_declaration(&mut self) -> ParseResult {
-        if let Some(token) = self.token() {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::Identifier(i) => {
                     let identifier = i.clone();
-                    if let Some(token) = self.token() {
-                        match token.token_type() {
-                            TokenType::Equal => {
-                                let expr = self.expression()?;
-                                self.consume(Some(TokenType::SemiColon))?;
-                                Ok(AstType::Var(identifier, Box::new(expr)))
+                    self.token().map_or(
+                        Err(String::from("Can not found Identifier Token")),
+                        |token| {
+                            match token.token_type() {
+                                TokenType::Equal => {
+                                    let expr = self.expression()?;
+                                    self.consume(Some(TokenType::SemiColon))?;
+                                    Ok(AstType::Var(identifier, Box::new(expr)))
+                                }
+                                // 初期化されていない変数は、nilで初期化
+                                TokenType::SemiColon => {
+                                    Ok(AstType::Var(identifier, Box::new(AstType::Nil)))
+                                }
+                                _ => Err("Could not found SemiColon".to_owned()),
                             }
-                            // 初期化されていない変数は、nilで初期化
-                            TokenType::SemiColon => {
-                                Ok(AstType::Var(identifier, Box::new(AstType::Nil)))
-                            }
-                            _ => Err("Could not found SemiColon".to_owned()),
-                        }
-                    } else {
-                        Err(String::from("Can not found Identifier Token"))
-                    }
+                        },
+                    )
                 }
                 _ => Err(String::from("Can not found Identifier Token")),
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// statement parse
@@ -259,8 +261,9 @@ impl<'a> Parser<'a> {
     /// # Returns
     /// * Vec<AstType> - パース結果
     fn statement(&mut self) -> ParseResult {
-        if let Some(token) = self.token() {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::Print => self.print_statement(),
                 TokenType::If => self.if_statement(),
                 TokenType::While => self.while_statement(),
@@ -271,10 +274,8 @@ impl<'a> Parser<'a> {
                     self.back();
                     self.expression_stmt()
                 }
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// return statement parse
@@ -321,51 +322,11 @@ impl<'a> Parser<'a> {
     /// * Vec<AstType> - パース結果
     fn for_statement(&mut self) -> ParseResult {
         self.consume(Some(TokenType::LeftParen))?;
-        let initialize = if let Some(token) = self.token() {
-            match token.token_type() {
-                TokenType::SemiColon => AstType::Nil,
-                TokenType::Var => self.var_declaration()?,
-                _ => {
-                    self.back();
-                    self.expression_stmt()?
-                }
-            }
-        } else {
-            return Err(String::from("Could not read token"));
-        };
-
-        let condition = if let Some(token) = self.token() {
-            match token.token_type() {
-                TokenType::SemiColon => {
-                    self.back();
-                    AstType::True
-                }
-                _ => {
-                    self.back();
-                    self.expression()?
-                }
-            }
-        } else {
-            return Err(String::from("Could not read token"));
-        };
+        let initialize = self.for_initialize()?;
+        let condition = self.for_condition()?;
         self.consume(Some(TokenType::SemiColon))?;
-
-        let increment = if let Some(token) = self.token() {
-            match token.token_type() {
-                TokenType::RightParen => {
-                    self.back();
-                    AstType::Nil
-                }
-                _ => {
-                    self.back();
-                    self.expression()?
-                }
-            }
-        } else {
-            return Err(String::from("Could not read token"));
-        };
+        let increment = self.for_increment()?;
         self.consume(Some(TokenType::RightParen))?;
-
         let stmt = self.statement()?;
 
         Ok(AstType::Block(vec![
@@ -375,6 +336,64 @@ impl<'a> Parser<'a> {
                 Box::new(AstType::Block(vec![stmt, increment])),
             ),
         ]))
+    }
+
+    /// for initialize parse
+    ///
+    /// # Returns
+    /// * ParseResult - パース結果
+    fn for_initialize(&mut self) -> ParseResult {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
+                TokenType::SemiColon => Ok(AstType::Nil),
+                TokenType::Var => self.var_declaration(),
+                _ => {
+                    self.back();
+                    self.expression_stmt()
+                }
+            },
+        )
+    }
+
+    /// for condition parse
+    ///
+    /// # Returns
+    /// * ParseResult - パース結果
+    fn for_condition(&mut self) -> ParseResult {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
+                TokenType::SemiColon => {
+                    self.back();
+                    Ok(AstType::True)
+                }
+                _ => {
+                    self.back();
+                    self.expression()
+                }
+            },
+        )
+    }
+
+    /// for increment parse
+    ///
+    /// # Returns
+    /// * ParseResult - パース結果
+    fn for_increment(&mut self) -> ParseResult {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
+                TokenType::RightParen => {
+                    self.back();
+                    Ok(AstType::Nil)
+                }
+                _ => {
+                    self.back();
+                    self.expression()
+                }
+            },
+        )
     }
 
     /// if statement parse
@@ -470,8 +489,9 @@ impl<'a> Parser<'a> {
     fn assignment(&mut self) -> ParseResult {
         let expr = self.or_parse()?;
 
-        if let Some(token) = self.token() {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::Equal => match expr {
                     AstType::Identifier(i) => {
                         let right_expr = self.assignment()?;
@@ -483,10 +503,8 @@ impl<'a> Parser<'a> {
                     self.back();
                     Ok(expr)
                 }
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// or parse
@@ -679,9 +697,9 @@ impl<'a> Parser<'a> {
     /// # Returns
     /// * Result<AstType, ()> - パース結果
     fn unary(&mut self) -> ParseResult {
-        let token = self.token();
-        if let Some(token) = token {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::Bang => {
                     let unary = self.unary()?;
                     Ok(AstType::Bang(Box::new(unary)))
@@ -694,10 +712,8 @@ impl<'a> Parser<'a> {
                     self.back();
                     self.call()
                 }
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// call parse
@@ -707,8 +723,9 @@ impl<'a> Parser<'a> {
     fn call(&mut self) -> ParseResult {
         let expr = self.primary()?;
 
-        if let Some(token) = self.token() {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::LeftParen => {
                     let arguments = self.arguments();
                     match expr {
@@ -720,10 +737,8 @@ impl<'a> Parser<'a> {
                     self.back();
                     Ok(expr)
                 }
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// arguments parse
@@ -772,9 +787,9 @@ impl<'a> Parser<'a> {
     /// # Returns
     /// * Result<AstType, ()> - パース結果
     fn primary(&mut self) -> ParseResult {
-        let token = self.token();
-        if let Some(token) = token {
-            match token.token_type() {
+        self.token().map_or(
+            Err(String::from("Could not read token")),
+            |token| match token.token_type() {
                 TokenType::Number(n) => Ok(AstType::Number(*n)),
                 TokenType::String(s) => Ok(AstType::String(s.clone())),
                 TokenType::True => Ok(AstType::True),
@@ -787,10 +802,8 @@ impl<'a> Parser<'a> {
                 }
                 TokenType::Identifier(i) => Ok(AstType::Identifier(i.to_string())),
                 _ => Err(format!("Not Support Token: {:?}", token)),
-            }
-        } else {
-            Err(String::from("Could not read token"))
-        }
+            },
+        )
     }
 
     /// リードポインターデクリメント
@@ -801,13 +814,13 @@ impl<'a> Parser<'a> {
     /// token取得
     ///
     /// # Returns
-    /// * Option<&Token> - Token
-    fn token(&mut self) -> Option<&Token> {
+    /// * Option<Token> - Token
+    fn token(&mut self) -> Option<Token> {
         if self.end() {
             None
         } else {
             self.read_pos += 1;
-            Some(&self.tokens[self.read_pos - 1])
+            Some(self.tokens[self.read_pos - 1].clone())
         }
     }
 
@@ -821,13 +834,13 @@ impl<'a> Parser<'a> {
         }
 
         let token = self.token().expect("Could not read token");
-        if let Some(expect_token) = expect_token {
+        expect_token.map_or(Ok(token.clone()), |expect_token| {
             if expect_token != *token.token_type() {
-                return Err(format!("Could not found token {:?}", expect_token));
+                Err(format!("Could not found token {:?}", expect_token))
+            } else {
+                Ok(token.clone())
             }
-        }
-
-        Ok(token.clone())
+        })
     }
 
     /// 文の区切りまでSKIPし、同期を取る。エラーが発生した際に、使用する

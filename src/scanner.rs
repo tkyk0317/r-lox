@@ -300,14 +300,15 @@ impl<'a> Scanner<'a> {
         // 予約語チェック
         let keyword = String::from(&literal);
         let token_type = self.keywords.get(&keyword);
-        if let Some(token_type) = token_type {
-            (Token::new(token_type.clone(), None, cur, line), read_num)
-        } else {
-            (
-                Token::new(TokenType::Identifier(literal.clone()), None, cur, line),
-                read_num,
-            )
-        }
+        token_type.map_or_else(
+            || {
+                (
+                    Token::new(TokenType::Identifier(literal.clone()), None, cur, line),
+                    read_num,
+                )
+            },
+            |token_type| (Token::new(token_type.clone(), None, cur, line), read_num),
+        )
     }
 
     /// 次の文字が期待する文字と一致しているか判定

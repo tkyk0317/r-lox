@@ -36,24 +36,19 @@ impl Environment {
     }
 
     pub fn push(&mut self, key: String, value: Value) -> Option<Value> {
-        let mut result = None;
         if self.variables.get(&key).is_some() {
-            result = self.variables.insert(key, value);
+            self.variables.insert(key, value)
         } else if self.enclosing.is_some() {
-            result = self.enclosing.as_mut().unwrap().push(key, value);
+            self.enclosing.as_mut().unwrap().push(key, value)
+        } else {
+            None
         }
-
-        result
     }
 
     pub fn get(&self, key: &String) -> Option<&Value> {
-        let result = self.variables.get(key);
-
-        if result.is_some() {
-            result
-        } else {
-            self.enclosing.as_ref().unwrap().get(key)
-        }
+        self.variables
+            .get(key)
+            .or_else(|| self.enclosing.as_ref().unwrap().get(key))
     }
 }
 
