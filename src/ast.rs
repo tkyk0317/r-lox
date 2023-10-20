@@ -48,15 +48,13 @@ pub enum ParseError {
     NotFoundToken(String),
     NotFoundAstType(String),
     NotSupportToken(String),
-    ParseError(String),
 }
 impl ParseError {
     fn print(&self) -> String {
         match self {
-            Self::CouldNotReadToken => format!("Could not read token"),
+            Self::CouldNotReadToken => "Could not read token".to_string(),
             Self::NotFoundToken(token) => format!("Could not found {:?} token", token),
             Self::NotFoundAstType(ast) => format!("Could not found {:?} ast type", ast),
-            Self::ParseError(err) => format!("{:?}", err),
             Self::NotSupportToken(token) => format!("Could not support {:?} token", token),
         }
     }
@@ -176,7 +174,7 @@ impl<'a> Parser<'a> {
     /// declaration parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn declaration(&mut self) -> ParseResult {
         self.token()
             .map_or(Err(ParseError::CouldNotReadToken), |token| {
@@ -194,7 +192,7 @@ impl<'a> Parser<'a> {
     /// fun declaration parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn fun_declaration(&mut self) -> ParseResult {
         self.token()
             .map_or(Err(ParseError::CouldNotReadToken), |token| {
@@ -216,7 +214,7 @@ impl<'a> Parser<'a> {
     /// function parameter parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * Result<Vec<AstType>, ParseError> - パース結果
     fn fun_parameters(&mut self) -> Result<Vec<AstType>, ParseError> {
         let mut arguments = vec![];
 
@@ -230,32 +228,11 @@ impl<'a> Parser<'a> {
                     TokenType::Comma => continue,
                     _ => {
                         self.back();
-                        let arg =
-                            self.token()
-                                .map_or(Err(ParseError::CouldNotReadToken), |token| {
-                                    match token.token_type() {
-                                        TokenType::Identifier(_i) => {
-                                            self.back();
-                                            self.primary()
-                                        }
-                                        _ => Err(ParseError::NotFoundToken(String::from(
-                                            "Identifier",
-                                        ))),
-                                    }
-                                });
-
-                        match arg {
-                            Ok(arg) => arguments.push(arg),
-                            _ => {
-                                return Err(ParseError::ParseError(String::from(
-                                    "Could not parse func argument",
-                                )))
-                            }
-                        }
+                        arguments.push(self.fun_one_parameter()?);
                     }
                 }
             } else {
-                panic!("Could not read token")
+                return Err(ParseError::CouldNotReadToken);
             }
 
             // 引数の数は255までしか解釈しない
@@ -268,43 +245,63 @@ impl<'a> Parser<'a> {
         Ok(arguments)
     }
 
-    /// var declaration parse
+    /// create function parameter
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
-    fn var_declaration(&mut self) -> ParseResult {
+    /// * ParseResult - パース結果
+    fn fun_one_parameter(&mut self) -> ParseResult {
         self.token()
             .map_or(Err(ParseError::CouldNotReadToken), |token| {
                 match token.token_type() {
-                    TokenType::Identifier(i) => {
-                        let identifier = i.clone();
-                        self.token().map_or(
-                            Err(ParseError::NotFoundToken(String::from("Identifier"))),
-                            |token| {
-                                match token.token_type() {
-                                    TokenType::Equal => {
-                                        let expr = self.expression()?;
-                                        self.consume(Some(TokenType::SemiColon))?;
-                                        Ok(AstType::Var(identifier, Box::new(expr)))
-                                    }
-                                    // 初期化されていない変数は、nilで初期化
-                                    TokenType::SemiColon => {
-                                        Ok(AstType::Var(identifier, Box::new(AstType::Nil)))
-                                    }
-                                    _ => Err(ParseError::NotFoundToken(String::from("SemiColon"))),
-                                }
-                            },
-                        )
+                    TokenType::Identifier(_i) => {
+                        self.back();
+                        self.primary()
                     }
                     _ => Err(ParseError::NotFoundToken(String::from("Identifier"))),
                 }
             })
     }
 
+    /// var declaration parse
+    ///
+    /// # Returns
+    /// * ParseResult - パース結果
+    fn var_declaration(&mut self) -> ParseResult {
+        self.token()
+            .map_or(Err(ParseError::CouldNotReadToken), |token| {
+                match token.token_type() {
+                    TokenType::Identifier(i) => self.declaration_identifier(i.clone()),
+                    _ => Err(ParseError::NotFoundToken(String::from("Identifier"))),
+                }
+            })
+    }
+
+    /// create identifier declaration
+    ///
+    /// # Returns
+    /// * ParseResult - パース結果
+    fn declaration_identifier(&mut self, identifier: String) -> ParseResult {
+        self.token().map_or(
+            Err(ParseError::NotFoundToken(String::from("Identifier"))),
+            |token| {
+                match token.token_type() {
+                    TokenType::Equal => {
+                        let expr = self.expression()?;
+                        self.consume(Some(TokenType::SemiColon))?;
+                        Ok(AstType::Var(identifier, Box::new(expr)))
+                    }
+                    // 初期化されていない変数は、nilで初期化
+                    TokenType::SemiColon => Ok(AstType::Var(identifier, Box::new(AstType::Nil))),
+                    _ => Err(ParseError::NotFoundToken(String::from("SemiColon"))),
+                }
+            },
+        )
+    }
+
     /// statement parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn statement(&mut self) -> ParseResult {
         self.token()
             .map_or(Err(ParseError::CouldNotReadToken), |token| {
@@ -326,7 +323,7 @@ impl<'a> Parser<'a> {
     /// return statement parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn return_statement(&mut self) -> ParseResult {
         let expr = if let Some(token) = self.token() {
             match token.token_type() {
@@ -351,7 +348,7 @@ impl<'a> Parser<'a> {
     /// while statement parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn while_statement(&mut self) -> ParseResult {
         self.consume(Some(TokenType::LeftParen))?;
         let condition = self.expression()?;
@@ -364,7 +361,7 @@ impl<'a> Parser<'a> {
     /// for statement parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn for_statement(&mut self) -> ParseResult {
         self.consume(Some(TokenType::LeftParen))?;
         let initialize = self.for_initialize()?;
@@ -444,7 +441,7 @@ impl<'a> Parser<'a> {
     /// if statement parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn if_statement(&mut self) -> ParseResult {
         self.consume(Some(TokenType::LeftParen))?;
         let condition = self.expression()?;
@@ -473,7 +470,7 @@ impl<'a> Parser<'a> {
     /// print statement parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn print_statement(&mut self) -> ParseResult {
         let expr = self.expression()?;
         self.consume(Some(TokenType::SemiColon))?;
@@ -484,7 +481,7 @@ impl<'a> Parser<'a> {
     /// block statement
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn block_statement(&mut self) -> ParseResult {
         let mut ast = vec![];
         loop {
@@ -511,7 +508,7 @@ impl<'a> Parser<'a> {
     /// exprStmt parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn expression_stmt(&mut self) -> ParseResult {
         let expr = self.expression()?;
         self.consume(Some(TokenType::SemiColon))?;
@@ -522,7 +519,7 @@ impl<'a> Parser<'a> {
     /// expression parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn expression(&mut self) -> ParseResult {
         self.assignment()
     }
@@ -530,7 +527,7 @@ impl<'a> Parser<'a> {
     /// assignment parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
+    /// * ParseResult - パース結果
     fn assignment(&mut self) -> ParseResult {
         let expr = self.or_parse()?;
 
@@ -555,7 +552,7 @@ impl<'a> Parser<'a> {
     /// or parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn or_parse(&mut self) -> ParseResult {
         let mut expr = self.and_parse()?;
 
@@ -582,7 +579,7 @@ impl<'a> Parser<'a> {
     /// and parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn and_parse(&mut self) -> ParseResult {
         let mut expr = self.equality()?;
 
@@ -609,7 +606,7 @@ impl<'a> Parser<'a> {
     /// equality parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn equality(&mut self) -> ParseResult {
         let mut comp = self.comparison()?;
         loop {
@@ -640,7 +637,7 @@ impl<'a> Parser<'a> {
     /// comparison parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn comparison(&mut self) -> ParseResult {
         let mut term = self.term()?;
         loop {
@@ -678,7 +675,7 @@ impl<'a> Parser<'a> {
     /// term parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn term(&mut self) -> ParseResult {
         let mut factor = self.factor()?;
         loop {
@@ -709,7 +706,7 @@ impl<'a> Parser<'a> {
     /// factory parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn factor(&mut self) -> ParseResult {
         let mut unary = self.unary()?;
         loop {
@@ -740,7 +737,7 @@ impl<'a> Parser<'a> {
     /// unary parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn unary(&mut self) -> ParseResult {
         self.token()
             .map_or(Err(ParseError::CouldNotReadToken), |token| {
@@ -764,7 +761,7 @@ impl<'a> Parser<'a> {
     /// call parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn call(&mut self) -> ParseResult {
         let expr = self.primary()?;
 
@@ -772,7 +769,7 @@ impl<'a> Parser<'a> {
             .map_or(Err(ParseError::CouldNotReadToken), |token| {
                 match token.token_type() {
                     TokenType::LeftParen => {
-                        let arguments = self.arguments();
+                        let arguments = self.arguments()?;
                         match expr {
                             AstType::Identifier(i) => Ok(AstType::Call(i, arguments)),
                             _ => Err(ParseError::NotFoundAstType(String::from("Identifier"))),
@@ -789,8 +786,8 @@ impl<'a> Parser<'a> {
     /// arguments parse
     ///
     /// # Returns
-    /// * Vec<AstType> - パース結果
-    fn arguments(&mut self) -> Vec<AstType> {
+    /// * Result<Vec<AstType>, ParseError> - パース結果
+    fn arguments(&mut self) -> Result<Vec<AstType>, ParseError> {
         let mut arguments = vec![];
 
         loop {
@@ -810,7 +807,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             } else {
-                panic!("Could not read token")
+                return Err(ParseError::CouldNotReadToken);
             }
 
             // 引数の数は255までしか解釈しない
@@ -820,17 +817,15 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if let Err(err) = self.consume(Some(TokenType::RightParen)) {
-            panic!("Could not found RightParen: {:?}", err)
-        }
+        self.consume(Some(TokenType::RightParen))?;
 
-        arguments
+        Ok(arguments)
     }
 
     /// primary parse
     ///
     /// # Returns
-    /// * Result<AstType, ()> - パース結果
+    /// * ParseResult - パース結果
     fn primary(&mut self) -> ParseResult {
         self.token()
             .map_or(Err(ParseError::CouldNotReadToken), |token| {
@@ -873,19 +868,24 @@ impl<'a> Parser<'a> {
     ///
     /// # Arguments
     /// * `expect_token` - Option型。次に期待するTokenがある場合に、指定する
+    ///
+    /// # Return
+    /// * Result<Token, ParseError> - パース結果
     fn consume(&mut self, expect_token: Option<TokenType>) -> Result<Token, ParseError> {
         if self.end() {
             return Err(ParseError::CouldNotReadToken);
         }
 
-        let token = self.token().expect("Could not read token");
-        expect_token.map_or(Ok(token.clone()), |expect_token| {
-            if expect_token != *token.token_type() {
-                Err(ParseError::NotFoundToken(format!("{:?}", expect_token)))
-            } else {
-                Ok(token.clone())
-            }
-        })
+        self.token()
+            .map_or(Err(ParseError::CouldNotReadToken), |token| {
+                expect_token.map_or(Ok(token.clone()), |expect_token| {
+                    if expect_token != *token.token_type() {
+                        Err(ParseError::NotFoundToken(format!("{:?}", expect_token)))
+                    } else {
+                        Ok(token.clone())
+                    }
+                })
+            })
     }
 
     /// 文の区切りまでSKIPし、同期を取る。エラーが発生した際に、使用する
